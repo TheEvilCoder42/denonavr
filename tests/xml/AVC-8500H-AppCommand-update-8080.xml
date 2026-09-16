@@ -256,6 +256,10 @@
 <sw1dispname>Subwoofer 1</sw1dispname>
 <sw1level>0.0dB</sw1level>
 <sw1value>24</sw1value>
+<sw2status>1</sw2status>
+<sw2dispname>Subwoofer 2</sw2dispname>
+<sw2level>0.0dB</sw2level>
+<sw2value>24</sw2value>
 </cmd>
 <cmd>
 <status>1</status>

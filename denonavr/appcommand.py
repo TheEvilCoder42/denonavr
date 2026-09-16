@@ -167,6 +167,23 @@ class AppCommands:
                 add_zone=False,
                 suffix="/sw1value",
             ),
+            # A receiver declaring one subwoofer sends none of the three
+            # below, which costs a debug line each and nothing else
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer2_value",
+                add_zone=False,
+                suffix="/sw2value",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer3_value",
+                add_zone=False,
+                suffix="/sw3value",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer4_value",
+                add_zone=False,
+                suffix="/sw4value",
+            ),
         ),
     )
 
