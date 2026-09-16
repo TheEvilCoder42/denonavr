@@ -485,17 +485,28 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         Return the subwoofer levels of the device in dB when enabled.
 
-        PSSWL ON/OFF is the Subwoofer Level Adjust menu setting and arrives
-        over telnet; it is assumed on until a push says otherwise, and gates
-        every level. The top level status of GetSubwooferLevel, read over
-        HTTP, gates only the HTTP values: a PSSWL value is the stored setting
-        and stays valid while HTTP reports none. subwoofer_level() reads
-        through this property so the two getters cannot disagree.
+        The Subwoofer Level Adjust menu setting, pushed over telnet and
+        assumed on until a push says otherwise, gates every level;
+        subwoofer_level_status gates only the HTTP ones, since a PSSWL value
+        is the stored setting and stays valid while HTTP reports none.
+        subwoofer_level() reads through here so the two cannot disagree.
         """
         if self._subwoofer_levels_adjustment:
             return self._merged_subwoofer_levels()
 
         return None
+
+    @property
+    def subwoofer_level_status(self) -> Optional[bool]:
+        """
+        Return whether the subwoofer level is adjustable right now.
+
+        This is the top level status of GetSubwooferLevel, True only while a
+        signal is present and subwoofer output is on. It gates the HTTP read
+        and the write alike. None means the receiver has not reported it,
+        which is the answer for a model that does not know the command.
+        """
+        return self._subwoofer_level_status
 
     @property
     def lfe(self) -> Optional[int]:
@@ -805,6 +816,47 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self._device.api.async_get_command(
                 self._device.urls.command_subwoofer_level.format(
                     number=mapped_subwoofer, mode="DOWN"
+                )
+            )
+
+    async def async_set_subwoofer_level(
+        self, subwoofer: Subwoofers, level: float
+    ) -> None:
+        """
+        Set the level of a subwoofer on the receiver.
+
+        :param subwoofer: Subwoofer to set.
+        :param level: Level to set. Valid values are -12 to 12 with 0.5 steps.
+
+        The receiver drops this command unless it reports the level as
+        adjustable, and does so misleadingly: it acknowledges the request and
+        echoes the unchanged level back on telnet, which reads as a
+        confirmation. Refused here rather than reported as a success that did
+        not happen. A receiver that has not reported the status at all is left
+        alone, since that is what a model without the command looks like.
+        """
+        self._is_valid_subwoofer(subwoofer)
+        if level not in CHANNEL_VOLUME_MAP_REVERSE:
+            raise AvrCommandError(f"Invalid subwoofer level: {level}")
+        if self._subwoofer_level_status is False:
+            raise AvrCommandError(
+                "Cannot set the subwoofer level, the receiver reports it as "
+                "not adjustable: a signal must be present and subwoofer "
+                "output must be on"
+            )
+
+        mapped_subwoofer = SUBWOOFERS_MAP_REVERSE[subwoofer]
+        mapped_level = CHANNEL_VOLUME_MAP_REVERSE[level]
+        if self._device.telnet_available:
+            await self._device.telnet_api.async_send_commands(
+                self._device.telnet_commands.command_subwoofer_level.format(
+                    number=mapped_subwoofer, mode=mapped_level
+                )
+            )
+        else:
+            await self._device.api.async_get_command(
+                self._device.urls.command_subwoofer_level.format(
+                    number=mapped_subwoofer, mode=mapped_level
                 )
             )
 
