@@ -9,7 +9,7 @@ This module covers tests of the volume functions of Denon AVR receivers.
 
 import pytest
 
-from denonavr.volume import DenonAVRVolume
+from denonavr.volume import DenonAVRVolume, convert_max_volume
 
 
 class TestSubwooferLevelsAdjustment:
@@ -33,3 +33,27 @@ class TestSubwooferLevelsAdjustment:
         volume._subwoofer_levels = {"Subwoofer": 0.0}
         volume._subwoofer_levels_adjustment = "0"
         assert volume.subwoofer_levels is None
+
+
+class TestConvertMaxVolume:
+    """Test case for the volume limit converter."""
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("-20.0", -20.0),
+            ("-10.0", -10.0),
+            ("0.0", 0.0),
+            # SR6012 pads the value with whitespace, so the OFF/--/"" guard has
+            # to strip before comparing, not only before float()
+            ("  0.0", 0.0),
+            (" OFF ", None),
+            ("OFF", None),
+            ("--", None),
+            ("", None),
+            (-20.0, -20.0),
+        ],
+    )
+    def test_limit_values(self, value, expected):
+        """Check that a limit is converted and OFF becomes None."""
+        assert convert_max_volume(value) == expected
