@@ -15,6 +15,7 @@ from typing import Callable, Dict, List, Literal, Optional, Union
 import attr
 import httpx
 
+from .audiodelay import DenonAVRAudioDelay, audio_delay_factory
 from .audyssey import DenonAVRAudyssey, audyssey_factory
 from .const import (
     AVR_X,
@@ -115,6 +116,11 @@ class DenonAVR(DenonAVRFoundation):
     )
     _setup_lock: asyncio.Lock = attr.ib(default=attr.Factory(asyncio.Lock))
     _allow_recovery: bool = attr.ib(converter=bool, default=True, init=True)
+    audiodelay: DenonAVRAudioDelay = attr.ib(
+        validator=attr.validators.instance_of(DenonAVRAudioDelay),
+        default=attr.Factory(audio_delay_factory, takes_self=True),
+        init=False,
+    )
     audyssey: DenonAVRAudyssey = attr.ib(
         validator=attr.validators.instance_of(DenonAVRAudyssey),
         default=attr.Factory(audyssey_factory, takes_self=True),
@@ -199,6 +205,7 @@ class DenonAVR(DenonAVRFoundation):
 
             self.vol.setup()
             self.audyssey.setup()
+            self.audiodelay.setup()
             self.dirac.setup()
 
             self._is_setup = True
@@ -614,13 +621,22 @@ class DenonAVR(DenonAVRFoundation):
         return self._device.sleep
 
     @property
+    def audio_delay(self) -> Optional[int]:
+        """
+        Return the audio delay for the device in ms.
+
+        Over HTTP this is only known after async_update_settings().
+        """
+        return self.audiodelay.audio_delay
+
+    @property
     def delay(self) -> Optional[int]:
         """
         Return the audio delay for the device in ms.
 
-        Only available if using Telnet.
+        Deprecated alias of audio_delay.
         """
-        return self._device.delay
+        return self.audiodelay.audio_delay
 
     @property
     def eco_mode(self) -> Optional[str]:
@@ -796,8 +812,12 @@ class DenonAVR(DenonAVRFoundation):
         """
         Return the auto lip sync status for the device.
 
-        Only available on Marantz devices and when using Telnet.
+        Read from GetAudioDelay, which needs async_update_settings(). Marantz
+        devices also push it over Telnet, which is the only source before the
+        first settings update.
         """
+        if self.audiodelay.auto_lip_sync is not None:
+            return self.audiodelay.auto_lip_sync
         return self._device.auto_lip_sync
 
     ##########
@@ -1057,11 +1077,11 @@ class DenonAVR(DenonAVRFoundation):
 
     async def async_delay_up(self) -> None:
         """Increase delay of the audio."""
-        await self._device.async_delay_up()
+        await self.audiodelay.async_delay_up()
 
     async def async_delay_down(self) -> None:
         """Decrease delay of the audio."""
-        await self._device.async_delay_down()
+        await self.audiodelay.async_delay_down()
 
     async def async_eco_mode(self, mode: EcoModes) -> None:
         """Set Eco mode."""

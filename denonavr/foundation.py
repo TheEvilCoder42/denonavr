@@ -168,9 +168,6 @@ class DenonAVRDeviceInfo:
     _sleep: Optional[Union[str, int]] = attr.ib(
         converter=attr.converters.optional(str), default=None
     )
-    _delay: Optional[int] = attr.ib(
-        converter=attr.converters.optional(int), default=None
-    )
     _eco_mode: Optional[str] = attr.ib(
         converter=attr.converters.optional(ECO_MODE_MAP.get), default=None
     )
@@ -297,11 +294,6 @@ class DenonAVRDeviceInfo:
             self._triggers = {}
 
         self._triggers[int(values[0])] = values[1]
-
-    def _delay_callback(self, zone: str, event: str, parameter: str) -> None:
-        """Handle a delay change event."""
-        if zone == self.zone and parameter[0:5] == "DELAY":
-            self._delay = parameter[6:]
 
     def _eco_mode_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle an Eco-mode change event."""
@@ -453,7 +445,6 @@ class DenonAVRDeviceInfo:
 
             self.telnet_api.register_callback("MN", self._settings_menu_callback)
             self.telnet_api.register_callback("DIM", self._dimmer_callback)
-            self.telnet_api.register_callback("PS", self._delay_callback)
             self.telnet_api.register_callback("ECO", self._eco_mode_callback)
             self.telnet_api.register_callback("VS", self._hdmi_output_callback)
             self.telnet_api.register_callback("VS", self._hdmi_audio_decode_callback)
@@ -846,15 +837,6 @@ class DenonAVRDeviceInfo:
         Possible values are: "OFF" and 1-120 (in minutes)
         """
         return self._sleep
-
-    @property
-    def delay(self) -> Optional[int]:
-        """
-        Return the audio delay for the device in ms.
-
-        Only available if using Telnet.
-        """
-        return self._delay
 
     @property
     def eco_mode(self) -> Optional[str]:
@@ -1429,24 +1411,6 @@ class DenonAVRDeviceInfo:
             else:
                 command = self.urls.command_smart_select_memory
             await self.api.async_get_command(command.format(number=quick_select_number))
-
-    async def async_delay_up(self) -> None:
-        """Delay up on receiver."""
-        if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_delay_up
-            )
-        else:
-            await self.api.async_get_command(self.urls.command_delay_up)
-
-    async def async_delay_down(self) -> None:
-        """Delay down on receiver."""
-        if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_delay_down
-            )
-        else:
-            await self.api.async_get_command(self.urls.command_delay_down)
 
     async def async_eco_mode(self, mode: EcoModes) -> None:
         """Set Eco mode."""
