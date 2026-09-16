@@ -96,6 +96,62 @@ SUBWOOFER_LEVELS = {
     "M-CR510-2": None,
 }
 
+# The channel levels are readable under the same condition, and the samples
+# that report them unknown are the interesting ones: their channel blocks carry
+# a status of 1 and a populated value while the top level status is 0.
+CHANNEL_VOLUMES = {
+    "AV7703": {
+        "Center": 1.0,
+        "Subwoofer": 0.0,
+        "Front Left": -3.0,
+        "Front Right": -3.0,
+        "Surround Left": 0.0,
+        "Surround Right": 0.0,
+    },
+    "AVC-8500H": {
+        "Center": 0.0,
+        "Subwoofer": 2.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": -1.0,
+        "Surround Right": -1.0,
+    },
+    "AVR-X4300H": {
+        "Center": 3.0,
+        "Subwoofer": 0.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": 0.0,
+        "Surround Right": 0.0,
+    },
+    "NR1609": {
+        "Center": 0.0,
+        "Subwoofer": 0.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": -2.0,
+        "Surround Right": -2.0,
+    },
+    "AVR-X4100W": {
+        "Center": -1.0,
+        "Subwoofer": 0.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": 1.0,
+        "Surround Right": 1.0,
+    },
+    "AVC-X3700H": None,
+    "AVC-A10H": None,
+    "SR6012": None,
+    "SR6011": None,
+    "AVR-1713": None,
+    "AVR-3313": None,
+    "AVR-X1100W": None,
+    "AVR-X4000": None,
+    "DRA-N4": None,
+    "M-CR510-2": None,
+}
+
 APPCOMMAND_URL = "/goform/AppCommand.xml"
 STATUS_URL = "/goform/formMainZone_MainZoneXmlStatus.xml"
 STATUS_Z2_URL = "/goform/formZone2_Zone2XmlStatus.xml"
@@ -327,6 +383,40 @@ class TestMainFunctions:
             assert (
                 level == expected
             ), f"Subwoofer level is {level} not {expected} for receiver {receiver}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_channel_volumes(self, httpx_mock: HTTPXMock):
+        """Check that the channel levels are read from every AppCommand sample."""
+        httpx_mock.add_callback(self.custom_matcher)
+        for receiver, expected in CHANNEL_VOLUMES.items():
+            print(f"Receiver: {receiver}")
+            # Switch receiver and update to load new sample files
+            self.testing_receiver = receiver
+            spec = TESTING_RECEIVERS[receiver]
+            self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+            await self.denon.async_setup()
+            await self.denon.async_update()
+            levels = self.denon.vol.channel_volumes
+            assert (
+                levels == expected
+            ), f"Channel levels are {levels} not {expected} for receiver {receiver}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_the_two_subwoofer_settings_are_separate(self, httpx_mock: HTTPXMock):
+        """Check that the subwoofer channel level is not the subwoofer level."""
+        httpx_mock.add_callback(self.custom_matcher)
+        # Options > Channel Level and Audio > Subwoofer Level Adjust are
+        # different settings, and the receiver reports a value in each
+        self.testing_receiver = "AV7703"
+        spec = TESTING_RECEIVERS["AV7703"]
+        self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+        await self.denon.async_setup()
+        await self.denon.async_update()
+
+        assert self.denon.vol.channel_volumes["Subwoofer"] == 0.0
+        assert self.denon.vol.subwoofer_levels["Subwoofer"] == -2.0
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
