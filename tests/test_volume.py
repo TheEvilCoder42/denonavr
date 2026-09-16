@@ -10,7 +10,9 @@ This module covers tests of the volume functions of Denon AVR receivers.
 from unittest import mock
 
 import pytest
+from pytest_httpx import HTTPXMock
 
+from denonavr.appcommand import AppCommands
 from denonavr.const import (
     MAIN_ZONE,
     ZONE2,
@@ -21,7 +23,26 @@ from denonavr.const import (
     ZONE3_URLS,
 )
 from denonavr.exceptions import AvrCommandError
-from denonavr.volume import DenonAVRVolume, convert_max_volume, convert_telnet_volume
+from denonavr.volume import (
+    DenonAVRVolume,
+    convert_appcommand_level,
+    convert_max_volume,
+    convert_telnet_volume,
+)
+
+
+def get_sample_content(filename):
+    """Return sample content form file."""
+    with open(f"tests/xml/{filename}", encoding="utf-8") as file:
+        return file.read()
+
+
+def volume_instance() -> DenonAVRVolume:
+    """Return a volume instance that is ready to be updated."""
+    volume = DenonAVRVolume()
+    # pylint: disable=protected-access
+    volume._device.use_avr_2016_update = True
+    return volume
 
 
 class TestSubwooferLevelsAdjustment:
@@ -44,6 +65,100 @@ class TestSubwooferLevelsAdjustment:
         # pylint: disable=protected-access
         volume._subwoofer_levels = {"Subwoofer": 0.0}
         volume._subwoofer_levels_adjustment = "0"
+        assert volume.subwoofer_levels is None
+
+
+class TestConvertAppCommandLevel:
+    """Test case for the level scale of the AppCommand interface."""
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            # Deviceinfo.xml declares 0 to 48, default 24, step 0.5 for both
+            # the channel level and the subwoofer level menu
+            ("0", -12.0),
+            ("4", -10.0),
+            ("18", -3.0),
+            ("24", 0.0),
+            ("48", 12.0),
+            (24, 0.0),
+            # An unreadable level comes back as an empty tag
+            ("", None),
+            ("  ", None),
+        ],
+    )
+    def test_level_values(self, value, expected):
+        """Check that a level is converted to dB and an empty one to None."""
+        assert convert_appcommand_level(value) == expected
+
+    def test_the_telnet_scale_is_a_different_one(self):
+        """Check that the two scales are not accidentally interchangeable."""
+        # 50 is 0.0 dB over telnet and +13.0 dB here, so a value read on one
+        # scale and reported on the other is wrong rather than merely offset
+        assert convert_appcommand_level("50") != 0.0
+
+
+class TestSubwooferLevelUpdate:
+    """Test case for reading the subwoofer level from AppCommand.xml."""
+
+    @pytest.mark.asyncio
+    async def test_readable_level_is_converted(self, httpx_mock: HTTPXMock):
+        """Check that a level read while audio plays lands on the property."""
+        httpx_mock.add_response(
+            content=get_sample_content(
+                "AVR-X1700H-AppCommand-subwooferlevel-playing.xml"
+            )
+        )
+        volume = volume_instance()
+        await volume.async_update_attrs_appcommand(
+            {AppCommands.GetSubwooferLevel: None}
+        )
+
+        # The receiver reports both, and sw1level agrees with the conversion
+        # of sw1value that the library does
+        assert volume.subwoofer_levels == {"Subwoofer": -10.0}
+        assert volume.subwoofer_level("Subwoofer") == -10.0
+
+    @pytest.mark.asyncio
+    async def test_unreadable_level_is_unknown(self, httpx_mock: HTTPXMock):
+        """Check that an idle receiver reports unknown rather than 0.0 dB."""
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand-subwooferlevel-idle.xml")
+        )
+        volume = volume_instance()
+        await volume.async_update_attrs_appcommand(
+            {AppCommands.GetSubwooferLevel: None}
+        )
+
+        assert volume.subwoofer_levels is None
+
+
+class TestSubwooferLevelSources:
+    """Test case for the two interfaces reporting the same subwoofer level."""
+
+    def test_appcommand_level_is_used_without_telnet(self):
+        """Check that an HTTP only setup reports the level it read."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        volume._subwoofer1_value = "20"
+        assert volume.subwoofer_levels == {"Subwoofer": -2.0}
+
+    def test_telnet_level_wins(self):
+        """Check that a pushed level is preferred over a polled one."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._subwoofer_levels = {"Subwoofer": 1.0}
+        volume._subwoofer_level_status = "1"
+        volume._subwoofer1_value = "20"
+        assert volume.subwoofer_levels == {"Subwoofer": 1.0}
+
+    def test_status_gates_the_appcommand_level(self):
+        """Check that a value is ignored while the receiver says unreadable."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "0"
+        volume._subwoofer1_value = "20"
         assert volume.subwoofer_levels is None
 
 

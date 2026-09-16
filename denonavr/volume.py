@@ -15,6 +15,7 @@ import attr
 
 from .appcommand import AppCommands
 from .const import (
+    APPCOMMAND_LEVEL_ZERO,
     CHANNEL_MAP,
     CHANNEL_MAP_REVERSE,
     CHANNEL_VOLUME_MAP,
@@ -71,6 +72,21 @@ def convert_telnet_volume(value: str) -> float:
     return VOLUME_MIN + whole_number + fraction
 
 
+def convert_appcommand_level(value: Union[float, str]) -> Optional[float]:
+    """
+    Convert a level reported by AppCommand.xml to dB.
+
+    The AppCommand interface reports a level as a whole number from 0 to 48
+    with 24 as 0.0 dB, which is not the telnet scale in CHANNEL_VOLUME_MAP.
+    A level the receiver cannot report right now comes back as an empty tag.
+    """
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    return (float(value) - APPCOMMAND_LEVEL_ZERO) / 2
+
+
 def convert_max_volume(value: Union[float, str]) -> Optional[float]:
     """Convert the volume limit to float, or None when no limit is set."""
     if isinstance(value, str):
@@ -102,6 +118,12 @@ class DenonAVRVolume(DenonAVRFoundation):
         converter=attr.converters.optional(convert_string_int_bool), default=True
     )
     _subwoofer_levels: Optional[Dict[Subwoofers, float]] = attr.ib(default=None)
+    _subwoofer_level_status: Optional[bool] = attr.ib(
+        converter=attr.converters.optional(convert_string_int_bool), default=None
+    )
+    _subwoofer1_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
     _valid_subwoofers = get_args(Subwoofers)
     _lfe: Optional[int] = attr.ib(converter=attr.converters.optional(int), default=None)
     _bass_sync: Optional[int] = attr.ib(
@@ -112,6 +134,7 @@ class DenonAVRVolume(DenonAVRFoundation):
     appcommand_attrs = {
         AppCommands.GetAllZoneVolume: None,
         AppCommands.GetAllZoneMuteStatus: None,
+        AppCommands.GetSubwooferLevel: None,
     }
     # Status.xml interface
     status_xml_attrs = {"_volume": "./MasterVolume/value", "_muted": "./Mute/value"}
@@ -321,15 +344,29 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         return self._subwoofer
 
+    def _merged_subwoofer_levels(self) -> Optional[Dict[Subwoofers, float]]:
+        """
+        Return the subwoofer levels known from either interface.
+
+        A level pushed over telnet wins over the one read from AppCommand.xml:
+        both are the same setting on the same scale, but the telnet value
+        arrives when it changes while the AppCommand one is only readable
+        while audio is playing.
+        """
+        if not self._subwoofer_level_status or self._subwoofer1_value is None:
+            return self._subwoofer_levels
+
+        levels: Dict[Subwoofers, float] = {"Subwoofer": self._subwoofer1_value}
+        if self._subwoofer_levels is not None:
+            levels.update(self._subwoofer_levels)
+
+        return levels
+
     @property
     def subwoofer_levels(self) -> Optional[Dict[Subwoofers, Union[bool, float]]]:
-        """
-        Return the subwoofer levels of the device in dB when enabled.
-
-        Only available if using Telnet.
-        """
+        """Return the subwoofer levels of the device in dB when enabled."""
         if self._subwoofer_levels_adjustment:
-            return self._subwoofer_levels
+            return self._merged_subwoofer_levels()
 
         return None
 
@@ -366,15 +403,12 @@ class DenonAVRVolume(DenonAVRFoundation):
         return self._channel_volumes[channel]
 
     def subwoofer_level(self, subwoofer: Subwoofers) -> Optional[float]:
-        """
-        Return the volume of a subwoofer in dB.
-
-        Only available if using Telnet.
-        """
+        """Return the volume of a subwoofer in dB."""
         self._is_valid_subwoofer(subwoofer)
-        if self._subwoofer_levels is None:
+        subwoofer_levels = self._merged_subwoofer_levels()
+        if subwoofer_levels is None:
             return None
-        return self._subwoofer_levels[subwoofer]
+        return subwoofer_levels[subwoofer]
 
     ##########
     # Setter #
