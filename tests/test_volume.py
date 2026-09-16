@@ -345,6 +345,16 @@ class TestSubwooferLevelSources:
         volume._subwoofer1_value = "20"
         assert volume.subwoofer_levels is None
 
+    def test_the_status_is_readable(self):
+        """Check that the gate the receiver reports is not private to us."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        assert volume.subwoofer_level_status is None
+        volume._subwoofer_level_status = "1"
+        assert volume.subwoofer_level_status is True
+        volume._subwoofer_level_status = "0"
+        assert volume.subwoofer_level_status is False
+
     @pytest.mark.parametrize(
         "status,adjustment",
         [("0", True), ("1", False), ("0", False)],
@@ -555,6 +565,99 @@ class TestSetMaxVolume:
         with pytest.raises(AvrCommandError):
             await volume.async_set_max_volume(max_volume)
         # pylint: disable=protected-access
+        volume._device.api.async_get_command.assert_not_awaited()
+
+
+class TestSetSubwooferLevel:
+    """
+    Test case for the absolute subwoofer level setter.
+
+    The receiver drops the command whenever it reports the level as not
+    adjustable, and says nothing about having done so -- the request is
+    acknowledged and the unchanged level is echoed back -- so the refusal has
+    to happen on this side.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "subwoofer,level,expected",
+        [
+            ("Subwoofer", 0.0, "PSSWL%2050"),
+            ("Subwoofer", -12.0, "PSSWL%2038"),
+            ("Subwoofer", 12.0, "PSSWL%2062"),
+            # a half step is a third digit, the CV convention rather than the
+            # PSDELAY one
+            ("Subwoofer", -8.5, "PSSWL%20415"),
+            ("Subwoofer 2", -2.0, "PSSWL2%2048"),
+            ("Subwoofer 4", 1.0, "PSSWL4%2051"),
+        ],
+    )
+    async def test_the_level_is_sent_on_the_telnet_scale(
+        self, subwoofer, level, expected
+    ):
+        """Check that dB is encoded as the command wants it, 50 being 0.0."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        await volume.async_set_subwoofer_level(subwoofer, level)
+        url = volume._device.api.async_get_command.await_args[0][0]
+        assert url.endswith(expected)
+
+    @pytest.mark.asyncio
+    async def test_telnet_is_preferred_when_it_is_there(self):
+        """Check that the setter takes the same route as its up/down pair."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        volume._device.telnet_api.async_send_commands = mock.AsyncMock()
+        with mock.patch.object(type(volume._device), "telnet_available", True):
+            await volume.async_set_subwoofer_level("Subwoofer", -10.0)
+        volume._device.telnet_api.async_send_commands.assert_awaited_once_with(
+            "PSSWL 40"
+        )
+        volume._device.api.async_get_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_shut_gate_refuses_rather_than_reporting_success(self):
+        """Check that a write the receiver would drop is not sent at all."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "0"
+        with pytest.raises(AvrCommandError):
+            await volume.async_set_subwoofer_level("Subwoofer", -10.0)
+        volume._device.api.async_get_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_unreported_gate_is_not_a_shut_one(self):
+        """Check that a model without the command can still be set."""
+        # A receiver which does not know GetSubwooferLevel answers <error>2</error>
+        # and the status stays None, which is not evidence that a write will be
+        # dropped -- only a reported 0 is
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        assert volume.subwoofer_level_status is None
+        await volume.async_set_subwoofer_level("Subwoofer", -10.0)
+        volume._device.api.async_get_command.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("level", [12.5, -12.5, 0.3, 100.0])
+    async def test_a_level_outside_the_domain_is_rejected(self, level):
+        """Check that a value the receiver would answer OK to is refused."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        with pytest.raises(AvrCommandError):
+            await volume.async_set_subwoofer_level("Subwoofer", level)
+        volume._device.api.async_get_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_invalid_subwoofer_is_rejected(self):
+        """Check that a name that is not a subwoofer at all still raises."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        with pytest.raises(AvrCommandError):
+            await volume.async_set_subwoofer_level("Subwoofer 5", -10.0)
         volume._device.api.async_get_command.assert_not_awaited()
 
 
