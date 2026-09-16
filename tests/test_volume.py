@@ -323,6 +323,22 @@ class TestSubwooferLevelSources:
         volume._subwoofer1_value = "20"
         assert volume.subwoofer_levels is None
 
+    @pytest.mark.parametrize(
+        "status,adjustment",
+        [("0", True), ("1", False), ("0", False)],
+    )
+    def test_the_two_getters_cannot_disagree(self, status, adjustment):
+        """Check that one getter never reports a level the other hides."""
+        # subwoofer_level() reads through subwoofer_levels rather than the
+        # merged levels, so the adjustment flag applies to both getters
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = status
+        volume._subwoofer_levels_adjustment = adjustment
+        volume._subwoofer1_value = "20"
+        assert volume.subwoofer_levels is None
+        assert volume.subwoofer_level("Subwoofer") is None
+
 
 class TestConvertMaxVolume:
     """Test case for the volume limit converter."""
