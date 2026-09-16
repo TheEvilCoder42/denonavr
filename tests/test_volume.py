@@ -193,6 +193,31 @@ class TestChannelLevelUpdate:
         assert volume.channel_volumes is None
 
 
+class TestUnknownLevels:
+    """Test case for asking for a level the receiver has not reported."""
+
+    def test_unknown_channel_reads_as_none(self):
+        """Check that a channel outside the reported set does not raise."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._channel_volumes_appcommand = {"Front Left": 0.0}
+        assert volume.channel_volume("Surround Left") is None
+
+    def test_unknown_subwoofer_reads_as_none(self):
+        """Check that a subwoofer outside the reported set does not raise."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        volume._subwoofer1_value = "24"
+        assert volume.subwoofer_level("Subwoofer 2") is None
+
+    def test_an_invalid_channel_still_raises(self):
+        """Check that a name that is not a channel at all is still rejected."""
+        volume = DenonAVRVolume()
+        with pytest.raises(AvrCommandError):
+            volume.channel_volume("Not A Channel")
+
+
 class TestLevelUpdateCost:
     """Test case for what reading the levels costs on a global update."""
 

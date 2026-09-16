@@ -465,20 +465,30 @@ class DenonAVRVolume(DenonAVRFoundation):
     # Getter #
     ##########
     def channel_volume(self, channel: Channels) -> Optional[float]:
-        """Return the volume of a channel in dB."""
+        """
+        Return the volume of a channel in dB.
+
+        A channel the receiver does not currently report a level for reads as
+        None, the same as a receiver that has reported no level at all.
+        """
         self._is_valid_channel(channel)
         channel_volumes = self.channel_volumes
         if channel_volumes is None:
             return None
-        return channel_volumes[channel]
+        return channel_volumes.get(channel)
 
     def subwoofer_level(self, subwoofer: Subwoofers) -> Optional[float]:
-        """Return the volume of a subwoofer in dB."""
+        """
+        Return the volume of a subwoofer in dB.
+
+        A subwoofer the receiver does not currently report a level for reads
+        as None, the same as a receiver that has reported no level at all.
+        """
         self._is_valid_subwoofer(subwoofer)
         subwoofer_levels = self._merged_subwoofer_levels()
         if subwoofer_levels is None:
             return None
-        return subwoofer_levels[subwoofer]
+        return subwoofer_levels.get(subwoofer)
 
     ##########
     # Setter #
