@@ -1068,6 +1068,14 @@ class DenonAVR(DenonAVRFoundation):
         """
         await self._device.async_sleep(sleep)
 
+    async def async_delay(self, delay: int) -> None:
+        """
+        Set the audio delay on the receiver.
+
+        :param delay: Audio delay in ms. Valid values are 0-500.
+        """
+        await self.audiodelay.async_delay(delay)
+
     async def async_delay_up(self) -> None:
         """Increase delay of the audio."""
         await self.audiodelay.async_delay_up()
