@@ -77,6 +77,7 @@ ReceiverURLs = namedtuple(
         "command_tactile_transducer_lpf",
         "command_delay_up",
         "command_delay_down",
+        "command_delay",
         "command_auromatic_3d_preset",
         "command_auromatic_3d_strength",
         "command_auro_3d_mode",
@@ -197,6 +198,7 @@ TelnetCommands = namedtuple(
         "command_tactile_transducer_lpf",
         "command_delay_up",
         "command_delay_down",
+        "command_delay",
         "command_auromatic_3d_preset",
         "command_auromatic_3d_strength",
         "command_auro_3d_mode",
@@ -664,6 +666,9 @@ COMMAND_TACTILE_TRANSDUCER_LEVEL = "/goform/formiPhoneAppDirect.xml?SSTTRLEV%20{
 COMMAND_TACTILE_TRANSDUCER_LPF = (
     "/goform/formiPhoneAppDirect.xml?SSTTRLPF%20{frequency}"
 )
+# PSDELAY only accepts a zero padded three digit value, "PSDELAY 50" is
+# answered with HTTP 200 and silently dropped while "PSDELAY 050" works
+COMMAND_DELAY = "/goform/formiPhoneAppDirect.xml?PSDELAY%20{value}"
 COMMAND_DELAY_UP = "/goform/formiPhoneAppDirect.xml?PSDELAY%20UP"
 COMMAND_DELAY_DOWN = "/goform/formiPhoneAppDirect.xml?PSDELAY%20DOWN"
 COMMAND_AUROMATIC_3D_PRESET = "/goform/formiPhoneAppDirect.xml?PSAUROPR%20{preset}"
@@ -812,6 +817,7 @@ DENONAVR_URLS = ReceiverURLs(
     command_tactile_transducer_lpf=COMMAND_TACTILE_TRANSDUCER_LPF,
     command_delay_up=COMMAND_DELAY_UP,
     command_delay_down=COMMAND_DELAY_DOWN,
+    command_delay=COMMAND_DELAY,
     command_auromatic_3d_preset=COMMAND_AUROMATIC_3D_PRESET,
     command_auromatic_3d_strength=COMMAND_AUROMATIC_3D_STRENGTH,
     command_auro_3d_mode=COMMAND_AURO_3D_MODE,
@@ -932,6 +938,7 @@ ZONE2_URLS = ReceiverURLs(
     command_tactile_transducer_lpf=COMMAND_TACTILE_TRANSDUCER_LPF,
     command_delay_up=COMMAND_DELAY_UP,
     command_delay_down=COMMAND_DELAY_DOWN,
+    command_delay=COMMAND_DELAY,
     command_auromatic_3d_preset=COMMAND_AUROMATIC_3D_PRESET,
     command_auromatic_3d_strength=COMMAND_AUROMATIC_3D_STRENGTH,
     command_auro_3d_mode=COMMAND_AURO_3D_MODE,
@@ -1052,6 +1059,7 @@ ZONE3_URLS = ReceiverURLs(
     command_tactile_transducer_lpf=COMMAND_TACTILE_TRANSDUCER_LPF,
     command_delay_up=COMMAND_DELAY_UP,
     command_delay_down=COMMAND_DELAY_DOWN,
+    command_delay=COMMAND_DELAY,
     command_auromatic_3d_preset=COMMAND_AUROMATIC_3D_PRESET,
     command_auromatic_3d_strength=COMMAND_AUROMATIC_3D_STRENGTH,
     command_auro_3d_mode=COMMAND_AURO_3D_MODE,
@@ -1229,6 +1237,7 @@ DENONAVR_TELNET_COMMANDS = TelnetCommands(
     command_tactile_transducer_lpf="SSTTRLPF {frequency}",
     command_delay_up="PSDELAY UP",
     command_delay_down="PSDELAY DOWN",
+    command_delay="PSDELAY {value}",
     command_auromatic_3d_preset="PSAUROPR {preset}",
     command_auromatic_3d_strength="PSAUROST {value}",
     command_auro_3d_mode="PSAUROMODE {mode}",
@@ -1347,6 +1356,7 @@ ZONE2_TELNET_COMMANDS = TelnetCommands(
     command_tactile_transducer_lpf="SSTTRLPF {frequency}",
     command_delay_up="PSDELAY UP",
     command_delay_down="PSDELAY DOWN",
+    command_delay="PSDELAY {value}",
     command_auromatic_3d_preset="PSAUROPR {preset}",
     command_auromatic_3d_strength="PSAUROST {value}",
     command_auro_3d_mode="PSAUROMODE {mode}",
@@ -1465,6 +1475,7 @@ ZONE3_TELNET_COMMANDS = TelnetCommands(
     command_tactile_transducer_lpf="SSTTRLPF {frequency}",
     command_delay_up="PSDELAY UP",
     command_delay_down="PSDELAY DOWN",
+    command_delay="PSDELAY {value}",
     command_auromatic_3d_preset="PSAUROPR {preset}",
     command_auromatic_3d_strength="PSAUROST {value}",
     command_auro_3d_mode="PSAUROMODE {mode}",
