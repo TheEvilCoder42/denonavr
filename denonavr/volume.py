@@ -49,12 +49,24 @@ def convert_volume(value: Union[float, str]) -> float:
     return float(value)
 
 
+def convert_max_volume(value: Union[float, str]) -> Optional[float]:
+    """Convert the volume limit to float, or None when no limit is set."""
+    if isinstance(value, str):
+        value = value.strip()
+    if value in ("OFF", "--", ""):
+        return None
+    return float(value)
+
+
 @attr.s(auto_attribs=True, on_setattr=DENON_ATTR_SETATTR)
 class DenonAVRVolume(DenonAVRFoundation):
     """This class implements volume functions of Denon AVR receiver."""
 
     _volume: Optional[float] = attr.ib(
         converter=attr.converters.optional(convert_volume), default=None
+    )
+    _max_volume: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_max_volume), default=None
     )
     _muted: Optional[bool] = attr.ib(
         converter=attr.converters.optional(convert_muted), default=None
@@ -231,6 +243,16 @@ class DenonAVRVolume(DenonAVRFoundation):
         Minimum is -80.0, maximum at 18.0
         """
         return self._volume
+
+    @property
+    def max_volume(self) -> Optional[float]:
+        """
+        Return the configured volume limit in the same scale as volume.
+
+        None means no limit is configured, in which case the ceiling is the
+        hardware maximum of 18.0.
+        """
+        return self._max_volume
 
     @property
     def channel_volumes(self) -> Optional[Dict[Channels, float]]:
