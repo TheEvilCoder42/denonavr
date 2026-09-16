@@ -236,6 +236,10 @@ class DenonAVR(DenonAVRFoundation):
                 self.tonecontrol.async_update(global_update=True, cache_id=cache_id),
                 self.vol.async_update(global_update=True, cache_id=cache_id),
             )
+            # The receiver stores the audio delay per input source, and this
+            # is the only transport that reports a source change without the
+            # AppCommand0300.xml settings update being enabled
+            self.audiodelay.notify_input_func(self.input.input_func)
         except AvrForbiddenError:
             # Recovery in case receiver changes port from 80 to 8080 which
             # might happen at Denon AVR-X 2016 receivers
