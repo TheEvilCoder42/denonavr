@@ -7,9 +7,12 @@ This module covers tests of the volume functions of Denon AVR receivers.
 :license: MIT, see LICENSE for more details.
 """
 
+from unittest import mock
+
 import pytest
 
 from denonavr.const import MAIN_ZONE
+from denonavr.exceptions import AvrCommandError
 from denonavr.volume import DenonAVRVolume, convert_max_volume, convert_telnet_volume
 
 
@@ -95,3 +98,49 @@ class TestVolumeEventsLeaveTheLimitAlone:
         volume._volume_callback(MAIN_ZONE, "MV", "565")
         assert volume.volume == -23.5
         assert volume.max_volume == -10.0
+
+
+class TestSetVolumeLimit:
+    """Test case for the volume limit enforced by async_set_volume."""
+
+    @pytest.mark.asyncio
+    async def test_above_limit_is_rejected(self):
+        """Check that a volume above the configured limit raises."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        with pytest.raises(AvrCommandError):
+            await volume.async_set_volume(-5.0)
+
+    @pytest.mark.asyncio
+    async def test_hardware_range_is_still_enforced(self):
+        """Check that the hardware range applies with no limit configured."""
+        volume = DenonAVRVolume()
+        with pytest.raises(AvrCommandError):
+            await volume.async_set_volume(18.5)
+        with pytest.raises(AvrCommandError):
+            await volume.async_set_volume(-80.5)
+
+    @pytest.mark.asyncio
+    async def test_at_or_below_limit_is_sent(self):
+        """Check that the limit itself is still a settable volume."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        volume._device.api.async_get_command = mock.AsyncMock()
+
+        await volume.async_set_volume(-10.0)
+        await volume.async_set_volume(-30.0)
+
+        assert volume._device.api.async_get_command.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_limit_allows_the_full_range(self):
+        """Check that an unset limit does not restrict anything."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._device.api.async_get_command = mock.AsyncMock()
+
+        await volume.async_set_volume(18.0)
+
+        volume._device.api.async_get_command.assert_awaited_once()

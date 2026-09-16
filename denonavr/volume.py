@@ -24,6 +24,7 @@ from .const import (
     STATE_ON,
     SUBWOOFERS_MAP,
     SUBWOOFERS_MAP_REVERSE,
+    VOLUME_MAX,
     VOLUME_MIN,
     Channels,
     Subwoofers,
@@ -372,10 +373,20 @@ class DenonAVRVolume(DenonAVRFoundation):
         Set receiver volume.
 
         Volume is send in a format like -50.0.
-        Minimum is -80.0, maximum at 18.0
+        Minimum is -80.0, maximum at 18.0, or max_volume when a volume limit
+        is configured on the receiver.
         """
-        if volume < -80 or volume > 18:
+        if volume < VOLUME_MIN or volume > VOLUME_MAX:
             raise AvrCommandError(f"Invalid volume: {volume}")
+
+        # The receiver clamps silently, which is indistinguishable from having
+        # applied the value, so reject it here instead of reporting a volume
+        # the receiver never took.
+        if self._max_volume is not None and volume > self._max_volume:
+            raise AvrCommandError(
+                f"Volume {volume} exceeds the configured limit of "
+                f"{self._max_volume}"
+            )
 
         # Round volume because only values which are a multi of 0.5 are working
         volume = round(volume * 2) / 2.0
