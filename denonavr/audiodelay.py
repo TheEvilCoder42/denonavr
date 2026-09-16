@@ -50,6 +50,10 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
     _tv_delay_control: Optional[int] = attr.ib(
         converter=attr.converters.optional(int), default=None
     )
+    # The input source the current audio delay was read for
+    _input_func: Optional[str] = attr.ib(
+        converter=attr.converters.optional(str), default=None
+    )
 
     # Update tags for attributes
     # AppCommand0300.xml interface
@@ -69,6 +73,23 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
         """Handle a delay change event."""
         if zone == self._device.zone and parameter[0:5] == "DELAY":
             self._audio_delay = parameter[6:]
+
+    def notify_input_func(self, input_func: Optional[str]) -> None:
+        """
+        Forget the audio delay when the input source changed.
+
+        The receiver stores the delay per input source, so after a source
+        change the value that was read is not stale, it belongs to another
+        source. Report it as unknown until the next update instead.
+        """
+        if input_func == self._input_func:
+            return
+
+        # The first source seen is not a change
+        if self._input_func is not None:
+            self._audio_delay = None
+
+        self._input_func = input_func
 
     async def async_update(
         self, global_update: bool = False, cache_id: Optional[Hashable] = None

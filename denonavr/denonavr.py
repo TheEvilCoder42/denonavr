@@ -230,6 +230,10 @@ class DenonAVR(DenonAVRFoundation):
 
             # Update other functions
             await self.input.async_update(global_update=True, cache_id=cache_id)
+            # The receiver stores the audio delay per input source, and this
+            # is the only transport that reports a source change without the
+            # AppCommand0300.xml settings update being enabled
+            self.audiodelay.notify_input_func(self.input.input_func)
             await self.soundmode.async_update(global_update=True, cache_id=cache_id)
             await self.tonecontrol.async_update(global_update=True, cache_id=cache_id)
             await self.vol.async_update(global_update=True, cache_id=cache_id)
