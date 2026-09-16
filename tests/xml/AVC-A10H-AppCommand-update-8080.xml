@@ -263,6 +263,12 @@
 <status>0</status>
 <sw1level></sw1level>
 <sw1value></sw1value>
+<sw2level></sw2level>
+<sw2value></sw2value>
+<sw3level></sw3level>
+<sw3value></sw3value>
+<sw4level></sw4level>
+<sw4value></sw4value>
 </cmd>
 <cmd>
 <status>0</status>
