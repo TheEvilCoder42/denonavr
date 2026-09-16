@@ -24,6 +24,7 @@ from .const import (
     STATE_ON,
     SUBWOOFERS_MAP,
     SUBWOOFERS_MAP_REVERSE,
+    VOLUME_TELNET_HALF_STEP,
     Channels,
     Subwoofers,
 )
@@ -43,6 +44,26 @@ def convert_volume(value: Union[float, str]) -> float:
     if value == "--":
         return -80.0
     return float(value)
+
+
+def encode_telnet_volume(volume: float, half_step: bool = True) -> str:
+    """
+    Encode a volume for the telnet scale.
+
+    Telnet takes the absolute value, which is the relative one plus 80. A whole
+    number is two digits; a half step is three, the last being the tenths digit
+    that the receiver itself uses when it reports one. -47.5 is therefore
+    "325", not "32".
+
+    Zones that do not move in half steps take the whole part only, because a
+    three digit value is ignored there rather than rounded.
+    """
+    absolute = volume + 80.0
+    whole = int(absolute)
+    if not half_step or absolute == whole:
+        return f"{whole:02d}"
+
+    return f"{whole:02d}5"
 
 
 @attr.s(auto_attribs=True, on_setattr=DENON_ATTR_SETATTR)
@@ -339,7 +360,9 @@ class DenonAVRVolume(DenonAVRFoundation):
         if self._device.telnet_available:
             await self._device.telnet_api.async_send_commands(
                 self._device.telnet_commands.command_set_volume.format(
-                    volume=int(volume + 80)
+                    volume=encode_telnet_volume(
+                        volume, VOLUME_TELNET_HALF_STEP[self._device.zone]
+                    )
                 )
             )
         else:
