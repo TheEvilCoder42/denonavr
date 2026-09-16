@@ -15,7 +15,7 @@ import attr
 
 from .appcommand import AppCommands
 from .const import DENON_ATTR_SETATTR
-from .exceptions import AvrProcessingError
+from .exceptions import AvrCommandError, AvrProcessingError
 from .foundation import DenonAVRFoundation, convert_string_int_bool
 
 _LOGGER = logging.getLogger(__name__)
@@ -123,6 +123,26 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
     ##########
     # Setter #
     ##########
+    async def async_delay(self, delay: int) -> None:
+        """
+        Set the audio delay on the receiver.
+
+        :param delay: Audio delay in ms. Valid values are 0-500.
+        """
+        if not isinstance(delay, int) or delay < 0 or delay > 500:
+            raise AvrCommandError(f"Invalid audio delay: {delay}")
+
+        # The receiver silently drops a value that is not three digits long
+        value = f"{delay:03d}"
+        if self._device.telnet_available:
+            await self._device.telnet_api.async_send_commands(
+                self._device.telnet_commands.command_delay.format(value=value)
+            )
+            return
+        await self._device.api.async_get_command(
+            self._device.urls.command_delay.format(value=value)
+        )
+
     async def async_delay_up(self) -> None:
         """Increase the audio delay by one step."""
         if self._device.telnet_available:
