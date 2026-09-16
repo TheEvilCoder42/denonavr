@@ -456,7 +456,18 @@ class DenonAVRVolume(DenonAVRFoundation):
 
     @property
     def subwoofer_levels(self) -> Optional[Dict[Subwoofers, Union[bool, float]]]:
-        """Return the subwoofer levels of the device in dB when enabled."""
+        """
+        Return the subwoofer levels of the device in dB when enabled.
+
+        Two separate things have to be true for a level to be reported, and
+        they come from different interfaces. PSSWL ON/OFF is the Subwoofer
+        Level Adjust menu setting and arrives over telnet; it is assumed on
+        until a push says otherwise. The top level status of
+        GetSubwooferLevel is whether the receiver will report a level right
+        now, and is read over HTTP. Both are applied here, and
+        subwoofer_level() reads through this property so the two getters
+        cannot disagree.
+        """
         if self._subwoofer_levels_adjustment:
             return self._merged_subwoofer_levels()
 
@@ -504,7 +515,7 @@ class DenonAVRVolume(DenonAVRFoundation):
         as None, the same as a receiver that has reported no level at all.
         """
         self._is_valid_subwoofer(subwoofer)
-        subwoofer_levels = self._merged_subwoofer_levels()
+        subwoofer_levels = self.subwoofer_levels
         if subwoofer_levels is None:
             return None
         return subwoofer_levels.get(subwoofer)
