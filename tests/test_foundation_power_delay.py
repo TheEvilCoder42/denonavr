@@ -9,6 +9,7 @@ Tests for power and delay commands of DenonAVRDeviceInfo.
 
 import pytest
 
+from denonavr.audiodelay import DenonAVRAudioDelay
 from tests.test_helpers import DeviceTestFixture
 
 # pylint: disable=protected-access
@@ -57,7 +58,7 @@ class TestDenonAVRDeviceInfoPowerDelay:
     async def test_async_delay_up_returns_early_when_max(self):
         """Test that async_delay_up returns early when delay is at max."""
         fixture = DeviceTestFixture(True)
-        device = fixture.device_info
+        device = DenonAVRAudioDelay(device=fixture.device_info)
         device._delay_callback("Main", "PS", "DELAY 500")
         await fixture.async_execute(device.async_delay_up())
         fixture.assert_not_called()
@@ -66,7 +67,7 @@ class TestDenonAVRDeviceInfoPowerDelay:
     async def test_async_delay_up_sends_command_when_not_max(self):
         """Test that async_delay_up sends command if delay is not at max."""
         fixture = DeviceTestFixture(True)
-        device = fixture.device_info
+        device = DenonAVRAudioDelay(device=fixture.device_info)
         device._delay_callback("Main", "PS", "DELAY 100")
         await fixture.async_execute(device.async_delay_up())
         fixture.assert_called_once()
@@ -75,7 +76,7 @@ class TestDenonAVRDeviceInfoPowerDelay:
     async def test_async_delay_down_returns_early_when_min(self):
         """Test that async_delay_down returns early when delay is at min."""
         fixture = DeviceTestFixture(True)
-        device = fixture.device_info
+        device = DenonAVRAudioDelay(device=fixture.device_info)
         device._delay_callback("Main", "PS", "DELAY 000")
         await fixture.async_execute(device.async_delay_down())
         fixture.assert_not_called()
@@ -84,7 +85,7 @@ class TestDenonAVRDeviceInfoPowerDelay:
     async def test_async_delay_down_sends_command_when_not_min(self):
         """Test that async_delay_down sends command if delay is not at min."""
         fixture = DeviceTestFixture(True)
-        device = fixture.device_info
+        device = DenonAVRAudioDelay(device=fixture.device_info)
         device._delay_callback("Main", "PS", "DELAY 100")
         await fixture.async_execute(device.async_delay_down())
         fixture.assert_called_once()

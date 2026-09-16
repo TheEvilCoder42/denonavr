@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests for the async_delay command of DenonAVRDeviceInfo."""
+"""Tests for the async_delay command of DenonAVRAudioDelay."""
 
 import pytest
 
-from denonavr.foundation import AvrCommandError
+from denonavr.audiodelay import DenonAVRAudioDelay
+from denonavr.exceptions import AvrCommandError
 from tests.test_helpers import DeviceTestFixture
 
 # pylint: disable=protected-access
@@ -14,7 +15,7 @@ from tests.test_helpers import DeviceTestFixture
 async def test_async_delay_returns_early_when_matches():
     """Test that no command is sent when the delay is already set."""
     fixture = DeviceTestFixture(True)
-    device = fixture.device_info
+    device = DenonAVRAudioDelay(device=fixture.device_info)
     device._delay_callback("Main", "PS", "DELAY 100")
     await fixture.async_execute(device.async_delay(100))
     fixture.assert_not_called()
@@ -24,7 +25,7 @@ async def test_async_delay_returns_early_when_matches():
 async def test_async_delay_sends_command_when_differs():
     """Test that a command is sent when another delay is set."""
     fixture = DeviceTestFixture(True)
-    device = fixture.device_info
+    device = DenonAVRAudioDelay(device=fixture.device_info)
     device._delay_callback("Main", "PS", "DELAY 100")
     await fixture.async_execute(device.async_delay(200))
     fixture._mock_telnet.assert_called_once_with("PSDELAY 200")
@@ -34,7 +35,9 @@ async def test_async_delay_sends_command_when_differs():
 async def test_async_delay_sends_command_when_delay_is_unknown():
     """Test that a command is sent when the current delay is not known."""
     fixture = DeviceTestFixture(True)
-    await fixture.async_execute(fixture.device_info.async_delay(0))
+    await fixture.async_execute(
+        DenonAVRAudioDelay(device=fixture.device_info).async_delay(0)
+    )
     fixture._mock_telnet.assert_called_once_with("PSDELAY 000")
 
 
@@ -46,7 +49,9 @@ async def test_async_delay_sends_command_when_delay_is_unknown():
 async def test_async_delay_pads_value_to_three_digits(delay, expected):
     """Test that the receiver gets the delay with three digits."""
     fixture = DeviceTestFixture(True)
-    await fixture.async_execute(fixture.device_info.async_delay(delay))
+    await fixture.async_execute(
+        DenonAVRAudioDelay(device=fixture.device_info).async_delay(delay)
+    )
     fixture._mock_telnet.assert_called_once_with(expected)
 
 
@@ -62,4 +67,6 @@ async def test_async_delay_raises_on_invalid(delay):
     """Test that a delay outside 0-500 is rejected."""
     fixture = DeviceTestFixture(True)
     with pytest.raises(AvrCommandError):
-        await fixture.async_execute(fixture.device_info.async_delay(delay))
+        await fixture.async_execute(
+            DenonAVRAudioDelay(device=fixture.device_info).async_delay(delay)
+        )
