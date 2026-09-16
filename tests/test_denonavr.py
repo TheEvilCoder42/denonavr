@@ -73,6 +73,29 @@ MAX_VOLUMES = {
     "AV7703": {"Main": -10.0, "Zone2": 0.0, "Zone3": -10.0},
 }
 
+# The subwoofer level is only readable while audio is playing, so a sample
+# taken with the receiver off or idle reports it unknown. AVC-X3700H is the
+# sharp case: powered off, and the channel level block of the same response
+# still carries values.
+SUBWOOFER_LEVELS = {
+    "AV7703": -2.0,
+    "AVC-8500H": 0.0,
+    "AVR-X4300H": -10.0,
+    "NR1609": -5.0,
+    "AVR-X4100W": 3.0,
+    "AVC-X3700H": None,
+    "AVC-A10H": None,
+    "SR6012": None,
+    "SR6011": None,
+    # These receivers do not know the command and answer <error>2</error>
+    "AVR-1713": None,
+    "AVR-3313": None,
+    "AVR-X1100W": None,
+    "AVR-X4000": None,
+    "DRA-N4": None,
+    "M-CR510-2": None,
+}
+
 APPCOMMAND_URL = "/goform/AppCommand.xml"
 STATUS_URL = "/goform/formMainZone_MainZoneXmlStatus.xml"
 STATUS_Z2_URL = "/goform/formZone2_Zone2XmlStatus.xml"
@@ -285,6 +308,25 @@ class TestMainFunctions:
             assert (
                 not zone.max_volume_known
             ), f"Max volume known for AVR-3313, zone {name}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_subwoofer_level(self, httpx_mock: HTTPXMock):
+        """Check that the subwoofer level is read from every AppCommand sample."""
+        httpx_mock.add_callback(self.custom_matcher)
+        for receiver, expected in SUBWOOFER_LEVELS.items():
+            print(f"Receiver: {receiver}")
+            # Switch receiver and update to load new sample files
+            self.testing_receiver = receiver
+            spec = TESTING_RECEIVERS[receiver]
+            self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+            await self.denon.async_setup()
+            await self.denon.async_update()
+            levels = self.denon.vol.subwoofer_levels
+            level = None if levels is None else levels.get("Subwoofer")
+            assert (
+                level == expected
+            ), f"Subwoofer level is {level} not {expected} for receiver {receiver}"
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)

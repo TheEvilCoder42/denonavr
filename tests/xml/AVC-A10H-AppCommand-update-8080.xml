@@ -259,4 +259,9 @@
 <zone2>off</zone2>
 <zone3>off</zone3>
 </cmd>
+<cmd>
+<status>0</status>
+<sw1level></sw1level>
+<sw1value></sw1value>
+</cmd>
 </rx>
