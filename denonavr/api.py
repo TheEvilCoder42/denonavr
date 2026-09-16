@@ -35,6 +35,7 @@ from .const import (
     DENON_ATTR_SETATTR,
     MAIN_ZONE,
     TELNET_EVENTS,
+    TELNET_QUIET_EVENTS,
     TELNET_SOURCES,
     ZONE2,
     ZONE3,
@@ -820,17 +821,10 @@ class DenonAVRTelnetApi:
         if len(message) < 3:
             return
 
-        # Event is 2 characters
+        # Event is the longest registered event the message starts with
         event = self._get_event(message)
         # Parameter is the remaining characters
         parameter = message[len(event) :]
-
-        if event == "MV":
-            # This seems undocumented by Denon and appears to basically be a
-            # noop that goes along with volume changes. This is here to prevent
-            # duplicate callback calls.
-            if parameter[0:3] == "MAX":
-                return
 
         # Determine zone
         zone = MAIN_ZONE
@@ -883,6 +877,11 @@ class DenonAVRTelnetApi:
                         self.host,
                         err,
                     )
+
+        # A quiet event always follows another event, so fanning it out to the
+        # generic listeners as well would notify them twice per change.
+        if event in TELNET_QUIET_EVENTS:
+            return
 
         if ALL_TELNET_EVENTS in self._callbacks.keys():
             for callback in self._callbacks[ALL_TELNET_EVENTS]:
