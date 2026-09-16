@@ -14,8 +14,12 @@ from typing import Optional
 import attr
 
 from .appcommand import AppCommands
-from .const import DENON_ATTR_SETATTR
-from .exceptions import AvrCommandError, AvrProcessingError
+from .const import DENON_ATTR_SETATTR, MAIN_ZONE
+from .exceptions import (
+    AvrCommandError,
+    AvrIncompleteResponseError,
+    AvrProcessingError,
+)
 from .foundation import DenonAVRFoundation, convert_string_int_bool
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,8 +91,9 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
                     global_update=global_update,
                     cache_id=cache_id,
                 )
-            except AvrProcessingError as err:
-                # Don't raise an error here, because not all devices support it
+            except (AvrProcessingError, AvrIncompleteResponseError) as err:
+                # Don't raise an error here, because not all devices support
+                # it. One that does not know GetAudioDelay answers it short.
                 _LOGGER.debug("Updating audio delay failed: %s", err)
 
     ##############
@@ -102,7 +107,11 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
         The value is stored per input source on the receiver, so it is reset
         to None when the input source changes and is only known again after
         the next update.
+
+        This is a main zone setting and None on a zone instance.
         """
+        if self._device.zone != MAIN_ZONE:
+            return None
         return self._audio_delay
 
     @property
