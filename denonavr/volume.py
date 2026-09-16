@@ -8,6 +8,7 @@ This module implements the handler for volume of Denon AVR receivers.
 """
 
 import logging
+import xml.etree.ElementTree as ET
 from collections.abc import Hashable
 from typing import Dict, Optional, Union, get_args
 
@@ -15,6 +16,7 @@ import attr
 
 from .appcommand import AppCommands
 from .const import (
+    APPCOMMAND_CMD_TEXT,
     APPCOMMAND_LEVEL_ZERO,
     CHANNEL_MAP,
     CHANNEL_MAP_REVERSE,
@@ -34,7 +36,7 @@ from .const import (
     Channels,
     Subwoofers,
 )
-from .exceptions import AvrCommandError, AvrProcessingError
+from .exceptions import AvrCommandError, AvrProcessingError, AvrRequestError
 from .foundation import (
     DenonAVRFoundation,
     convert_on_off_bool,
@@ -110,6 +112,7 @@ class DenonAVRVolume(DenonAVRFoundation):
         converter=attr.converters.optional(convert_muted), default=None
     )
     _channel_volumes: Optional[Dict[Channels, float]] = attr.ib(default=None)
+    _channel_volumes_appcommand: Optional[Dict[Channels, float]] = attr.ib(default=None)
     _valid_channels = get_args(Channels)
     _subwoofer: Optional[bool] = attr.ib(
         converter=attr.converters.optional(convert_on_off_bool), default=None
@@ -144,6 +147,9 @@ class DenonAVRVolume(DenonAVRFoundation):
         # Add tags for a potential AppCommand.xml update
         for tag in self.appcommand_attrs:
             self._device.api.add_appcommand_update_tag(tag)
+        # GetChLevel is answered in the same response but parsed separately,
+        # so it is registered here rather than in appcommand_attrs
+        self._device.api.add_appcommand_update_tag(AppCommands.GetChLevel)
 
         self._device.telnet_api.register_callback("MV", self._volume_callback)
         # MVMAX is registered as an event but deliberately not read: it is not
@@ -286,6 +292,9 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self.async_update_attrs_appcommand(
                 self.appcommand_attrs, global_update=global_update, cache_id=cache_id
             )
+            await self.async_update_channel_levels(
+                global_update=global_update, cache_id=cache_id
+            )
         else:
             urls = [self._device.urls.status]
             if self._device.zone == MAIN_ZONE:
@@ -293,6 +302,64 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self.async_update_attrs_status_xml(
                 self.status_xml_attrs, urls, cache_id=cache_id
             )
+
+    async def async_update_channel_levels(
+        self, global_update: bool = False, cache_id: Optional[Hashable] = None
+    ) -> None:
+        """
+        Update the channel levels of the device from AppCommand.xml.
+
+        GetChLevel is parsed here rather than through a response pattern
+        because it answers with a repeated <ch> list, which a pattern cannot
+        express. The tag rides the global update, so this costs no request of
+        its own on the path that calls it.
+        """
+        try:
+            if global_update:
+                xml = await self._device.api.async_get_global_appcommand(
+                    cache_id=cache_id
+                )
+            else:
+                xml = await self._device.api.async_post_appcommand(
+                    self._device.urls.appcommand,
+                    (AppCommands.GetChLevel,),
+                    cache_id=cache_id,
+                )
+        except AvrRequestError as err:
+            _LOGGER.debug("Error when getting channel levels: %s", err)
+            raise
+
+        self._channel_volumes_appcommand = self._parse_channel_levels(xml)
+
+    @staticmethod
+    def _parse_channel_levels(xml: ET.Element) -> Optional[Dict[Channels, float]]:
+        """Return the channel levels of a GetChLevel response, if readable."""
+        search_string = (
+            f"./cmd[@{APPCOMMAND_CMD_TEXT}='{AppCommands.GetChLevel.cmd_text}']"
+        )
+        cmd = xml.find(search_string)
+        if cmd is None:
+            # Receivers which do not know the command answer <error>2</error>
+            return None
+
+        # Only the top level status is a reliable gate. A receiver in standby
+        # answers status 0 while still reporting status 1 and a populated
+        # value for the channels it would play, so following the per channel
+        # status reports a confident level for a receiver that is switched
+        # off. Which channels are readable also depends on the input source
+        # and on what is playing, so the set is replaced rather than merged.
+        if (cmd.findtext("status") or "").strip() != "1":
+            return None
+
+        channel_volumes = {}
+        for child in cmd.findall("./chlists/ch"):
+            name = (child.findtext("name") or "").strip()
+            value = (child.findtext("value") or "").strip()
+            if not value or name not in CHANNEL_MAP:
+                continue
+            channel_volumes[CHANNEL_MAP[name]] = convert_appcommand_level(value)
+
+        return channel_volumes or None
 
     ##############
     # Properties #
@@ -331,9 +398,15 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         Return the channel levels of the device in dB.
 
-        Only available if using Telnet.
+        A level pushed over telnet wins over the one read from AppCommand.xml,
+        which is only readable while audio is playing.
         """
-        return self._channel_volumes
+        if self._channel_volumes_appcommand is None:
+            return self._channel_volumes
+        if self._channel_volumes is None:
+            return self._channel_volumes_appcommand
+
+        return {**self._channel_volumes_appcommand, **self._channel_volumes}
 
     @property
     def subwoofer(self) -> Optional[bool]:
@@ -392,15 +465,12 @@ class DenonAVRVolume(DenonAVRFoundation):
     # Getter #
     ##########
     def channel_volume(self, channel: Channels) -> Optional[float]:
-        """
-        Return the volume of a channel in dB.
-
-        Only available if using Telnet.
-        """
+        """Return the volume of a channel in dB."""
         self._is_valid_channel(channel)
-        if self._channel_volumes is None:
+        channel_volumes = self.channel_volumes
+        if channel_volumes is None:
             return None
-        return self._channel_volumes[channel]
+        return channel_volumes[channel]
 
     def subwoofer_level(self, subwoofer: Subwoofers) -> Optional[float]:
         """Return the volume of a subwoofer in dB."""

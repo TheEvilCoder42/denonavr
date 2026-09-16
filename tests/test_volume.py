@@ -133,6 +133,139 @@ class TestSubwooferLevelUpdate:
         assert volume.subwoofer_levels is None
 
 
+class TestChannelLevelUpdate:
+    """Test case for reading the channel levels from AppCommand.xml."""
+
+    @pytest.mark.asyncio
+    async def test_readable_levels_are_converted(self, httpx_mock: HTTPXMock):
+        """Check that the channels a playing receiver reports are picked up."""
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand-chlevel-playing.xml")
+        )
+        volume = volume_instance()
+        await volume.async_update_channel_levels()
+
+        # A 3.1 layout, upmixed to Dolby Surround by the incoming signal
+        assert volume.channel_volumes == {
+            "Center": 0.0,
+            "Subwoofer": 0.0,
+            "Front Left": 0.0,
+            "Front Right": 0.0,
+        }
+        assert volume.channel_volume("Front Left") == 0.0
+
+    @pytest.mark.asyncio
+    async def test_idle_levels_are_unknown(self, httpx_mock: HTTPXMock):
+        """Check that an idle receiver reports unknown rather than 0.0 dB."""
+        # Front left and front right still carry a status of 1 and a value of
+        # 24 here, under a top level status of 0
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand-chlevel-idle.xml")
+        )
+        volume = volume_instance()
+        await volume.async_update_channel_levels()
+
+        assert volume.channel_volumes is None
+
+    @pytest.mark.asyncio
+    async def test_standby_levels_are_unknown(self, httpx_mock: HTTPXMock):
+        """Check that a receiver in standby does not report a level."""
+        # Standby exposes more than idle does: the subwoofer joins front left
+        # and front right in reporting a populated value, still under a top
+        # level status of 0
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand-chlevel-standby.xml")
+        )
+        volume = volume_instance()
+        await volume.async_update_channel_levels()
+
+        assert volume.channel_volumes is None
+
+    @pytest.mark.asyncio
+    async def test_an_unsupported_command_is_not_an_error(self, httpx_mock: HTTPXMock):
+        """Check that a receiver which answers an error leaves the levels alone."""
+        httpx_mock.add_response(
+            content='<?xml version="1.0"?><rx><error>2</error></rx>'
+        )
+        volume = volume_instance()
+        await volume.async_update_channel_levels()
+
+        assert volume.channel_volumes is None
+
+
+class TestLevelUpdateCost:
+    """Test case for what reading the levels costs on a global update."""
+
+    # Not a capture: the four blocks a global update of the volume module on
+    # its own asks for, in the order it registers them
+    GLOBAL_UPDATE = """<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd><zone1><volume>-40.0</volume><limit>OFF</limit></zone1></cmd>
+<cmd><zone1>off</zone1></cmd>
+<cmd>
+<status>1</status>
+<sw1status>1</sw1status>
+<sw1dispname>Subwoofer 1</sw1dispname>
+<sw1level>-10.0dB</sw1level>
+<sw1value>4</sw1value>
+</cmd>
+<cmd>
+<status>1</status>
+<chlists>
+<ch>
+<name>FL</name>
+<status>1</status>
+<sptype>1</sptype>
+<level>-1.0dB</level>
+<value>22</value>
+</ch>
+</chlists>
+</cmd>
+</rx>
+"""
+
+    @pytest.mark.asyncio
+    async def test_both_levels_ride_the_existing_request(self, httpx_mock: HTTPXMock):
+        """Check that neither level costs a request of its own."""
+        # GetChLevel is parsed outside the response pattern mechanism, so it
+        # asks for the global response a second time. async_post is cached on
+        # the cache_id of the update in progress, so that is a cache hit
+        httpx_mock.add_response(content=self.GLOBAL_UPDATE)
+        volume = volume_instance()
+        await volume.async_update(global_update=True, cache_id="a global update")
+
+        assert len(httpx_mock.get_requests()) == 1
+        assert volume.subwoofer_levels == {"Subwoofer": -10.0}
+        assert volume.channel_volumes == {"Front Left": -1.0}
+
+
+class TestChannelLevelSources:
+    """Test case for the two interfaces reporting the same channel levels."""
+
+    def test_telnet_levels_win(self):
+        """Check that a pushed level is preferred over a polled one."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._channel_volumes_appcommand = {"Front Left": 0.0, "Center": 0.0}
+        volume._channel_volume_callback(MAIN_ZONE, "CV", "FL 49")
+        assert volume.channel_volumes == {"Front Left": -1.0, "Center": 0.0}
+
+    def test_both_scales_agree_on_zero(self):
+        """Check that the telnet and the AppCommand scale are normalised."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._channel_volume_callback(MAIN_ZONE, "CV", "FL 50")
+        volume._channel_volumes_appcommand = {"Center": convert_appcommand_level("24")}
+        assert volume.channel_volumes == {"Front Left": 0.0, "Center": 0.0}
+
+    def test_surround_back_is_read(self):
+        """Check that the single surround back channel is not dropped."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._channel_volume_callback(MAIN_ZONE, "CV", "SB 50")
+        assert volume.channel_volumes == {"Surround Back": 0.0}
+
+
 class TestSubwooferLevelSources:
     """Test case for the two interfaces reporting the same subwoofer level."""
 

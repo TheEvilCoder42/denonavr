@@ -128,6 +128,11 @@ class AppCommands:
         ),
     )
 
+    # GetChLevel returns a repeated <ch> list, which AppCommandResponsePattern
+    # cannot express: it sets one attribute from one fixed tag path. The
+    # response is parsed in volume.py instead.
+    GetChLevel = AppCommandCmd(cmd_id="1", cmd_text="GetChLevel")
+
     GetDimmer = AppCommandCmd(
         cmd_id="1",
         cmd_text="GetDimmer",
