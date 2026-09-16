@@ -205,4 +205,11 @@
 <zone2>off</zone2>
 <zone3>off</zone3>
 </cmd>
+<cmd>
+<status>1</status>
+<sw1status>1</sw1status>
+<sw1dispname>Subwoofer 1</sw1dispname>
+<sw1level>-10.0dB</sw1level>
+<sw1value>4</sw1value>
+</cmd>
 </rx>
