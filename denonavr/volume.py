@@ -377,6 +377,14 @@ class DenonAVRVolume(DenonAVRFoundation):
     ##########
     async def async_volume_up(self) -> None:
         """Volume up receiver."""
+        # A receiver already at its ceiling ignores the command and answers
+        # nothing at all, so repeating it is pure noise. Compared against None
+        # rather than truthiness: 0.0 is a legal limit and a legal volume.
+        ceiling = VOLUME_MAX if self._max_volume is None else self._max_volume
+        if self._volume is not None and self._volume >= ceiling:
+            _LOGGER.debug("Volume already at %s, not sending volume up", ceiling)
+            return
+
         if self._device.telnet_available:
             await self._device.telnet_api.async_send_commands(
                 self._device.telnet_commands.command_volume_up, skip_confirmation=True
