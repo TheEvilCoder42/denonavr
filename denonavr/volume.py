@@ -21,6 +21,10 @@ from .const import (
     CHANNEL_VOLUME_MAP_REVERSE,
     DENON_ATTR_SETATTR,
     MAIN_ZONE,
+    MAX_VOLUME_MAX,
+    MAX_VOLUME_MIN,
+    MAX_VOLUME_STEP,
+    MAX_VOLUME_TELNET_EVENT,
     STATE_ON,
     SUBWOOFERS_MAP,
     SUBWOOFERS_MAP_REVERSE,
@@ -120,8 +124,13 @@ class DenonAVRVolume(DenonAVRFoundation):
 
         self._device.telnet_api.register_callback("MV", self._volume_callback)
         # MVMAX is registered as an event but deliberately not read: it is not
-        # a trustworthy source for the volume limit. Registering it keeps it
-        # from confirming a pending MV command or reaching _volume_callback.
+        # a trustworthy source for the volume limit, see
+        # _max_volume_setup_callback. Registering it keeps it from confirming a
+        # pending MV command or reaching _volume_callback.
+        self._device.telnet_api.register_callback(
+            MAX_VOLUME_TELNET_EVENT[self._device.zone],
+            self._max_volume_setup_callback,
+        )
         self._device.telnet_api.register_callback("MU", self._mute_callback)
         self._device.telnet_api.register_callback("CV", self._channel_volume_callback)
         self._device.telnet_api.register_callback("PS", self._subwoofer_state_callback)
@@ -137,6 +146,30 @@ class DenonAVRVolume(DenonAVRFoundation):
             return
 
         self._volume = convert_telnet_volume(parameter)
+
+    def _max_volume_setup_callback(self, zone: str, event: str, parameter: str) -> None:
+        """
+        Handle a volume limit change event.
+
+        This is the only telnet source for the limit. MVMAX looks like a second
+        one and is not trustworthy: on an AVR-X1700H it answered a MV? query
+        with 98, the hardware ceiling, while the limit was off, but pushed 71
+        after that same limit was cleared from 70 -- neither the limit nor the
+        ceiling, and indistinguishable from a real limit of -9.0. Reading it
+        would intermittently overwrite the correct value this callback sets.
+
+        Every change to the limit is pushed here, whoever makes it, so a change
+        from the front panel or the setup menu arrives the same way.
+        """
+        value = parameter.strip()
+        if value in ("OFF", ""):
+            self._max_volume = None
+            return
+
+        # The value is a plain integer on the absolute scale, zero padded on
+        # zone 2 and zone 3 but never a half step, so it is not the same
+        # encoding as the MV events.
+        self._max_volume = VOLUME_MIN + float(value)
 
     def _mute_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle a muting change event."""
@@ -400,6 +433,40 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self._device.api.async_get_command(
                 self._device.urls.command_set_volume.format(volume=volume)
             )
+
+    async def async_set_max_volume(self, max_volume: Optional[float]) -> None:
+        """
+        Set the receiver volume limit.
+
+        The limit is given in the same scale as the volume, from -20.0 to 0.0,
+        and None turns it off. The main zone takes every whole step; zone 2 and
+        zone 3 only take multiples of 10.0.
+        """
+        if max_volume is None:
+            telnet_command = self._device.telnet_commands.command_max_volume_off
+            url = self._device.urls.command_max_volume_off
+        else:
+            step = MAX_VOLUME_STEP[self._device.zone]
+            if (
+                max_volume < MAX_VOLUME_MIN
+                or max_volume > MAX_VOLUME_MAX
+                or max_volume % step != 0
+            ):
+                raise AvrCommandError(f"Invalid max volume: {max_volume}")
+
+            # The receiver ignores a value it does not accept, answering the
+            # same 200 with an empty body either way, so the domain is checked
+            # here rather than read back.
+            value = int(max_volume - VOLUME_MIN)
+            telnet_command = self._device.telnet_commands.command_set_max_volume.format(
+                value=value
+            )
+            url = self._device.urls.command_set_max_volume.format(value=value)
+
+        if self._device.telnet_available:
+            await self._device.telnet_api.async_send_commands(telnet_command)
+        else:
+            await self._device.api.async_get_command(url)
 
     async def async_mute(self, mute: bool) -> None:
         """Mute receiver."""
