@@ -150,6 +150,15 @@ class DenonAVRVolume(DenonAVRFoundation):
     _subwoofer1_value: Optional[float] = attr.ib(
         converter=attr.converters.optional(convert_appcommand_level), default=None
     )
+    _subwoofer2_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
+    _subwoofer3_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
+    _subwoofer4_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
     _valid_subwoofers = get_args(Subwoofers)
     _lfe: Optional[int] = attr.ib(converter=attr.converters.optional(int), default=None)
     _bass_sync: Optional[int] = attr.ib(
@@ -452,10 +461,20 @@ class DenonAVRVolume(DenonAVRFoundation):
         arrives when it changes while the AppCommand one is only readable
         while audio is playing.
         """
-        if not self._subwoofer_level_status or self._subwoofer1_value is None:
+        levels: Dict[Subwoofers, float] = {}
+        if self._subwoofer_level_status:
+            for subwoofer, value in (
+                ("Subwoofer", self._subwoofer1_value),
+                ("Subwoofer 2", self._subwoofer2_value),
+                ("Subwoofer 3", self._subwoofer3_value),
+                ("Subwoofer 4", self._subwoofer4_value),
+            ):
+                if value is not None:
+                    levels[subwoofer] = value
+
+        if not levels:
             return self._subwoofer_levels
 
-        levels: Dict[Subwoofers, float] = {"Subwoofer": self._subwoofer1_value}
         if self._subwoofer_levels is not None:
             levels.update(self._subwoofer_levels)
 

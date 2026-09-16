@@ -74,15 +74,15 @@ MAX_VOLUMES = {
 }
 
 # The subwoofer level is only readable while audio is playing, so a sample
-# taken with the receiver off or idle reports it unknown. AVC-X3700H is the
-# sharp case: powered off, and the channel level block of the same response
-# still carries values.
+# taken off or idle reports it unknown -- AVC-X3700H even while the channel
+# level block of the same response carries values. A model declaring more
+# than one subwoofer reports one value each.
 SUBWOOFER_LEVELS = {
-    "AV7703": -2.0,
-    "AVC-8500H": 0.0,
-    "AVR-X4300H": -10.0,
-    "NR1609": -5.0,
-    "AVR-X4100W": 3.0,
+    "AV7703": {"Subwoofer": -2.0, "Subwoofer 2": -1.0},
+    "AVC-8500H": {"Subwoofer": 0.0, "Subwoofer 2": 0.0},
+    "AVR-X4300H": {"Subwoofer": -10.0, "Subwoofer 2": -8.0},
+    "NR1609": {"Subwoofer": -5.0},
+    "AVR-X4100W": {"Subwoofer": 3.0, "Subwoofer 2": 3.0},
     "AVC-X3700H": None,
     "AVC-A10H": None,
     "SR6012": None,
@@ -379,10 +379,9 @@ class TestMainFunctions:
             await self.denon.async_setup()
             await self.denon.async_update()
             levels = self.denon.vol.subwoofer_levels
-            level = None if levels is None else levels.get("Subwoofer")
             assert (
-                level == expected
-            ), f"Subwoofer level is {level} not {expected} for receiver {receiver}"
+                levels == expected
+            ), f"Subwoofer levels are {levels} not {expected} for receiver {receiver}"
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
