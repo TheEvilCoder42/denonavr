@@ -79,6 +79,7 @@ from .const import (
 )
 from .exceptions import (
     AvrCommandError,
+    AvrIncompleteResponseError,
     AvrNetworkError,
     AvrRequestError,
     AvrTimoutError,
@@ -2021,9 +2022,20 @@ class DenonAVRFoundation:
         # Execute call
         try:
             if global_update:
-                xml = await self._device.api.async_get_global_appcommand(
-                    appcommand0300=appcommand0300, cache_id=cache_id
-                )
+                try:
+                    xml = await self._device.api.async_get_global_appcommand(
+                        appcommand0300=appcommand0300, cache_id=cache_id
+                    )
+                except AvrIncompleteResponseError:
+                    # A short AppCommand.xml answer must reach async_update,
+                    # which falls back to status XML on it
+                    if not appcommand0300:
+                        raise
+                    # A model that does not know one of the shared tags answers
+                    # short, which must not cost the modules whose tags it knows
+                    xml = await self._device.api.async_post_appcommand(
+                        self._device.urls.appcommand0300, tags, cache_id=cache_id
+                    )
             else:
                 # Determine endpoint
                 if appcommand0300:

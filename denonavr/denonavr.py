@@ -273,9 +273,21 @@ class DenonAVR(DenonAVRFoundation):
         """Get Tonecontrol settings."""
         await self.tonecontrol.async_update()
 
+    async def async_update_settings(self) -> None:
+        """
+        Get the settings that are served by AppCommand0300.xml.
+
+        Audyssey and the audio delay share one request: both go through the
+        global AppCommand0300.xml update under the same cache id, so the
+        second one is answered from the cache of the first.
+        """
+        cache_id = time.time()
+        await self.audyssey.async_update(global_update=True, cache_id=cache_id)
+        await self.audiodelay.async_update(global_update=True, cache_id=cache_id)
+
     async def async_update_audyssey(self):
-        """Get Audyssey settings."""
-        await self.audyssey.async_update()
+        """Get Audyssey settings. Alias of async_update_settings()."""
+        await self.async_update_settings()
 
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
@@ -625,7 +637,7 @@ class DenonAVR(DenonAVRFoundation):
         """
         Return the audio delay for the device in ms.
 
-        Over HTTP this is only known after audiodelay.async_update().
+        Over HTTP this is only known after async_update_settings().
         """
         return self.audiodelay.audio_delay
 
@@ -812,7 +824,7 @@ class DenonAVR(DenonAVRFoundation):
         """
         Return the auto lip sync status for the device.
 
-        Read from GetAudioDelay, which needs audiodelay.async_update(). Marantz
+        Read from GetAudioDelay, which needs async_update_settings(). Marantz
         devices also push it over Telnet, which is the only source before the
         first settings update.
         """
