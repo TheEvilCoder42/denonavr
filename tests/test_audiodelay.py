@@ -9,9 +9,11 @@ This module covers tests of the audio delay settings.
 
 from unittest import mock
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
+import denonavr
 from denonavr.audiodelay import DenonAVRAudioDelay
 from denonavr.const import MAIN_ZONE, ZONE2
 from denonavr.exceptions import AvrCommandError
@@ -133,3 +135,118 @@ class TestSetAudioDelay:
             await audio_delay.async_delay(50)
 
         send.assert_awaited_once_with("PSDELAY 050")
+
+
+class TestSettingsUpdate:
+    """Test case for the combined AppCommand0300.xml refresh."""
+
+    @pytest.mark.asyncio
+    async def test_audyssey_and_audio_delay_share_one_request(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that refreshing both settings costs a single request."""
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        )
+        denon = denonavr.DenonAVR("10.0.0.0")
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.audyssey.setup()
+        denon.audiodelay.setup()
+
+        await denon.async_update_settings()
+
+        requests = httpx_mock.get_requests()
+        assert len(requests) == 1
+        assert requests[0].url.path == APPCOMMAND0300_URL
+        assert denon.audyssey.multi_eq == "Reference"
+        assert denon.audio_delay == 140
+        assert denon.auto_lip_sync is True
+
+    @pytest.mark.asyncio
+    async def test_a_zone_reports_no_audio_delay(self, httpx_mock: HTTPXMock):
+        """Check that a zone does not report the main zone's audio delay."""
+        # The receiver keeps one delay, for the main zone's input source, and a
+        # zone ignores the PSDELAY events that would keep its copy current
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        )
+        denon = denonavr.DenonAVR("10.0.0.0", add_zones={ZONE2: ZONE2})
+        zone2 = denon.zones[ZONE2]
+        # pylint: disable=protected-access
+        zone2._device.use_avr_2016_update = True
+        zone2.audyssey.setup()
+        zone2.audiodelay.setup()
+
+        await zone2.async_update_settings()
+
+        assert zone2.audio_delay is None
+        assert zone2.auto_lip_sync is True
+        assert zone2.audiodelay.tv_delay == 0
+
+    @pytest.mark.asyncio
+    async def test_a_short_answer_does_not_stop_audyssey(self, httpx_mock: HTTPXMock):
+        """Check that a device without GetAudioDelay still refreshes Audyssey."""
+        audyssey = get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        audyssey = audyssey[: audyssey.index("<cmd>\n<name>GetAudioDelay")] + "</rx>"
+
+        # A device that does not know a tag leaves its element out
+        def answer(request: httpx.Request) -> httpx.Response:
+            if b"GetAudyssey" in request.content:
+                return httpx.Response(200, text=audyssey)
+            return httpx.Response(200, text="<rx></rx>")
+
+        httpx_mock.add_callback(answer, is_reusable=True)
+        denon = denonavr.DenonAVR("10.0.0.0")
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.audyssey.setup()
+        denon.audiodelay.setup()
+
+        await denon.async_update_settings()
+
+        assert denon.audyssey.multi_eq == "Reference"
+        assert denon.audio_delay is None
+
+    @pytest.mark.asyncio
+    async def test_a_short_answer_does_not_stop_the_audio_delay(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that a device without GetAudyssey still refreshes the delay."""
+        delay = get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        delay = "<rx>" + delay[delay.index("<cmd>\n<name>GetAudioDelay") :]
+
+        # The retry with GetAudyssey alone is answered short too
+        def answer(request: httpx.Request) -> httpx.Response:
+            if b"GetAudioDelay" in request.content:
+                return httpx.Response(200, text=delay)
+            return httpx.Response(200, text="<rx></rx>")
+
+        httpx_mock.add_callback(answer, is_reusable=True)
+        denon = denonavr.DenonAVR("10.0.0.0")
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.audyssey.setup()
+        denon.audiodelay.setup()
+
+        await denon.async_update_settings()
+
+        assert denon.audyssey.multi_eq is None
+        assert denon.audio_delay == 140
+
+    @pytest.mark.asyncio
+    async def test_update_audyssey_is_an_alias(self, httpx_mock: HTTPXMock):
+        """Check that the deprecated name refreshes both settings."""
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        )
+        denon = denonavr.DenonAVR("10.0.0.0")
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.audyssey.setup()
+        denon.audiodelay.setup()
+
+        await denon.async_update_audyssey()
+
+        assert denon.audyssey.multi_eq == "Reference"
+        assert denon.audio_delay == 140

@@ -29,7 +29,7 @@ from .const import (
     MultiEQModes,
     ReferenceLevelOffsets,
 )
-from .exceptions import AvrCommandError, AvrProcessingError
+from .exceptions import AvrCommandError, AvrIncompleteResponseError, AvrProcessingError
 from .foundation import DenonAVRFoundation, convert_string_int_bool
 
 _LOGGER = logging.getLogger(__name__)
@@ -137,8 +137,9 @@ class DenonAVRAudyssey(DenonAVRFoundation):
                     global_update=global_update,
                     cache_id=cache_id,
                 )
-            except AvrProcessingError as err:
-                # Don't raise an error here, because not all devices support it
+            except (AvrProcessingError, AvrIncompleteResponseError) as err:
+                # Don't raise an error here, because not all devices support
+                # it. One that does not know GetAudyssey answers it short.
                 _LOGGER.debug("Updating Audyssey failed: %s", err)
 
     async def _async_set_audyssey(self, cmd: AppCommandCmd) -> None:
