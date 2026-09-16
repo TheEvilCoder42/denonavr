@@ -35,6 +35,7 @@ from .const import (
     PanelLocks,
     ReferenceLevelOffsets,
     RoomSizes,
+    Subwoofers,
     TransducerLPFs,
     VideoProcessingModes,
 )
@@ -394,6 +395,39 @@ class DenonAVR(DenonAVRFoundation):
         hardware maximum of 18.0.
         """
         return self.vol.max_volume
+
+    @property
+    def subwoofer_levels(self) -> Optional[Dict[Subwoofers, Union[bool, float]]]:
+        """
+        Return the level of each subwoofer the receiver reports, in dB.
+
+        Read over HTTP while the level is adjustable, and over telnet whenever
+        a PSSWL event arrives, which wins where both are known. A subwoofer
+        the receiver is not reporting right now is absent from the dict rather
+        than present with a stale value.
+        """
+        return self.vol.subwoofer_levels
+
+    @property
+    def subwoofer_level_status(self) -> Optional[bool]:
+        """
+        Return whether the subwoofer level can be read and set right now.
+
+        True only while a signal is present and subwoofer output is on --
+        either one off closes it, and the receiver then neither reports a
+        level nor accepts one. None means the receiver has not reported it,
+        which is the answer for a model that does not know the command.
+        """
+        return self.vol.subwoofer_level_status
+
+    def subwoofer_level(self, subwoofer: Subwoofers) -> Optional[float]:
+        """
+        Return the level of one subwoofer in dB.
+
+        A subwoofer the receiver does not currently report a level for reads
+        as None, the same as a receiver that has reported no level at all.
+        """
+        return self.vol.subwoofer_level(subwoofer)
 
     @property
     def input_func(self) -> Optional[str]:
@@ -939,6 +973,27 @@ class DenonAVR(DenonAVRFoundation):
         zone 3 only take multiples of 10.0.
         """
         await self.vol.async_set_max_volume(max_volume)
+
+    async def async_subwoofer_level_up(self, subwoofer: Subwoofers) -> None:
+        """Increase the level of a subwoofer by one step."""
+        await self.vol.async_subwoofer_level_up(subwoofer)
+
+    async def async_subwoofer_level_down(self, subwoofer: Subwoofers) -> None:
+        """Decrease the level of a subwoofer by one step."""
+        await self.vol.async_subwoofer_level_down(subwoofer)
+
+    async def async_set_subwoofer_level(
+        self, subwoofer: Subwoofers, level: float
+    ) -> None:
+        """
+        Set the level of a subwoofer in dB.
+
+        Valid levels are -12.0 to 12.0 in steps of 0.5. The receiver drops the
+        command while subwoofer_level_status is False and says nothing about
+        having done so, so this raises AvrCommandError rather than reporting a
+        success that did not happen.
+        """
+        await self.vol.async_set_subwoofer_level(subwoofer, level)
 
     async def async_mute(self, mute: bool) -> None:
         """Mute receiver."""
