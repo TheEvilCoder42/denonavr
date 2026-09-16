@@ -264,3 +264,19 @@ class TestMaxVolumeSetupCallback:
         volume._max_volume = 0.0
         volume._max_volume_setup_callback(MAIN_ZONE, "SSVCTZMALIM", parameter)
         assert volume.max_volume == expected
+
+    def test_other_zones_events_are_reported_as_main(self):
+        """
+        Check that a zone takes its own event whatever zone it is labelled.
+
+        _process_event derives the zone from a Z2/Z3 message prefix, which
+        SSVCTZ2SLIM does not have, so zone 2's own limit event arrives labelled
+        as the main zone. Verified against an AVR-X1700H, which pushes
+        ('Main', 'SSVCTZ2SLIM', ' 060') after a zone 2 write. Each zone only
+        ever registers for its own event name, so the callback must not filter
+        on the zone it is handed.
+        """
+        volume = _zone_volume(ZONE2, ZONE2_URLS, ZONE2_TELNET_COMMANDS)
+        # pylint: disable=protected-access
+        volume._max_volume_setup_callback(MAIN_ZONE, "SSVCTZ2SLIM", " 060")
+        assert volume.max_volume == -20.0
