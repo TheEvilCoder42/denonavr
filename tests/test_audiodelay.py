@@ -250,3 +250,33 @@ class TestSettingsUpdate:
 
         assert denon.audyssey.multi_eq == "Reference"
         assert denon.audio_delay == 140
+
+
+class TestPerSourceInvalidation:
+    """Test case for forgetting the delay after an input source change."""
+
+    def test_the_first_source_is_not_a_change(self):
+        """Check that a delay read before the first update survives."""
+        audio_delay = DenonAVRAudioDelay()
+        # pylint: disable=protected-access
+        audio_delay._delay_callback(MAIN_ZONE, "PS", "DELAY 140")
+        audio_delay.notify_input_func("SAT/CBL")
+        assert audio_delay.audio_delay == 140
+
+    def test_a_source_change_clears_the_delay(self):
+        """Check that the delay of the previous source is not reported."""
+        audio_delay = DenonAVRAudioDelay()
+        # pylint: disable=protected-access
+        audio_delay._delay_callback(MAIN_ZONE, "PS", "DELAY 140")
+        audio_delay.notify_input_func("SAT/CBL")
+        audio_delay.notify_input_func("NET")
+        assert audio_delay.audio_delay is None
+
+    def test_the_same_source_keeps_the_delay(self):
+        """Check that an update without a source change changes nothing."""
+        audio_delay = DenonAVRAudioDelay()
+        # pylint: disable=protected-access
+        audio_delay.notify_input_func("SAT/CBL")
+        audio_delay._delay_callback(MAIN_ZONE, "PS", "DELAY 140")
+        audio_delay.notify_input_func("SAT/CBL")
+        assert audio_delay.audio_delay == 140
