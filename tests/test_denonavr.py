@@ -784,3 +784,21 @@ class TestMainFunctions:
             protocol.data_received(b"MV565\r")
             await self.future
             assert self.denon.volume == -23.5
+
+
+class TestDeviceProperties:
+    """Test case for DenonAVR properties that delegate to the device."""
+
+    def test_auto_lip_sync_reads_the_device(self):
+        """Check that auto lip sync is read from the device instance."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device._auto_lip_sync = "ON"
+        assert denon.auto_lip_sync is True
+
+    def test_illumination_reads_the_device(self):
+        """Check that illumination is read from the device instance."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device._illumination = "DIM"
+        assert denon.illumination == "Dim"
