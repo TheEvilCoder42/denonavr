@@ -311,6 +311,32 @@ class TestSubwooferLevelSources:
         volume._subwoofer1_value = "20"
         assert volume.subwoofer_levels == {"Subwoofer": 1.0}
 
+    def test_every_declared_subwoofer_is_read(self):
+        """Check that a receiver with four subwoofers reports four levels."""
+        # Extrapolated from the single subwoofer shape, which is the only one
+        # captured -- see the note in the pull request
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        volume._subwoofer1_value = "24"
+        volume._subwoofer2_value = "20"
+        volume._subwoofer3_value = "28"
+        volume._subwoofer4_value = "4"
+        assert volume.subwoofer_levels == {
+            "Subwoofer": 0.0,
+            "Subwoofer 2": -2.0,
+            "Subwoofer 3": 2.0,
+            "Subwoofer 4": -10.0,
+        }
+
+    def test_absent_subwoofers_are_left_out(self):
+        """Check that a one subwoofer receiver reports one level."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._subwoofer_level_status = "1"
+        volume._subwoofer1_value = "24"
+        assert volume.subwoofer_levels == {"Subwoofer": 0.0}
+
     def test_status_gates_the_appcommand_level(self):
         """Check that a value is ignored while the receiver says unreadable."""
         volume = DenonAVRVolume()
