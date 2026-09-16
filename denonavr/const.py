@@ -1913,6 +1913,12 @@ Channels = Literal[
 ]
 """Receiver Channels."""
 
+# AppCommand.xml reports channel and subwoofer levels as a whole number from 0
+# to 48 with 24 as 0.0 dB and a step of 0.5 dB, which Deviceinfo.xml declares
+# for both the ChannelLevel and the SubwooferLevel menu. That is not the telnet
+# scale in CHANNEL_VOLUME_MAP below, where 50 is 0.0 dB.
+APPCOMMAND_LEVEL_ZERO = 24
+
 CHANNEL_VOLUME_MAP = {
     "38": -12.0,
     "385": -11.5,

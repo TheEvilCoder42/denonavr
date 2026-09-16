@@ -148,6 +148,23 @@ class AppCommands:
         ),
     )
 
+    GetSubwooferLevel = AppCommandCmd(
+        cmd_id="1",
+        cmd_text="GetSubwooferLevel",
+        response_pattern=(
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer_level_status",
+                add_zone=False,
+                suffix="/status",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer1_value",
+                add_zone=False,
+                suffix="/sw1value",
+            ),
+        ),
+    )
+
     GetSurroundModeStatus = AppCommandCmd(
         cmd_id="1",
         cmd_text="GetSurroundModeStatus",
