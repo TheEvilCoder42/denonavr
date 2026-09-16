@@ -12,6 +12,7 @@ from unittest import mock
 import pytest
 from pytest_httpx import HTTPXMock
 
+import denonavr
 from denonavr.audiodelay import DenonAVRAudioDelay
 from denonavr.const import MAIN_ZONE, ZONE2
 from denonavr.exceptions import AvrCommandError
@@ -133,3 +134,47 @@ class TestSetAudioDelay:
             await audio_delay.async_delay(50)
 
         send.assert_awaited_once_with("PSDELAY 050")
+
+
+class TestSettingsUpdate:
+    """Test case for the combined AppCommand0300.xml refresh."""
+
+    @pytest.mark.asyncio
+    async def test_audyssey_and_audio_delay_share_one_request(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that refreshing both settings costs a single request."""
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        )
+        denon = denonavr.DenonAVR("10.0.0.0")
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.audyssey.setup()
+        denon.audiodelay.setup()
+
+        await denon.async_update_settings()
+
+        requests = httpx_mock.get_requests()
+        assert len(requests) == 1
+        assert requests[0].url.path == APPCOMMAND0300_URL
+        assert denon.audyssey.multi_eq == "Reference"
+        assert denon.audio_delay == 140
+        assert denon.auto_lip_sync is True
+
+    @pytest.mark.asyncio
+    async def test_update_audyssey_is_an_alias(self, httpx_mock: HTTPXMock):
+        """Check that the deprecated name refreshes both settings."""
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        )
+        denon = denonavr.DenonAVR("10.0.0.0")
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.audyssey.setup()
+        denon.audiodelay.setup()
+
+        await denon.async_update_audyssey()
+
+        assert denon.audyssey.multi_eq == "Reference"
+        assert denon.audio_delay == 140

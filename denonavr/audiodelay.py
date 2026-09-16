@@ -15,7 +15,11 @@ import attr
 
 from .appcommand import AppCommands
 from .const import DENON_ATTR_SETATTR
-from .exceptions import AvrCommandError, AvrProcessingError
+from .exceptions import (
+    AvrCommandError,
+    AvrIncompleteResponseError,
+    AvrProcessingError,
+)
 from .foundation import DenonAVRFoundation, convert_string_int_bool
 
 _LOGGER = logging.getLogger(__name__)
@@ -99,8 +103,11 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
                     global_update=global_update,
                     cache_id=cache_id,
                 )
-            except AvrProcessingError as err:
-                # Don't raise an error here, because not all devices support it
+            except (AvrProcessingError, AvrIncompleteResponseError) as err:
+                # Don't raise an error here, because not all devices support
+                # it. A device that does not know one of the tags of the
+                # shared AppCommand0300.xml request answers it short, which
+                # arrives as an incomplete response.
                 _LOGGER.debug("Updating audio delay failed: %s", err)
 
     ##############
