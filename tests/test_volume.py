@@ -280,3 +280,70 @@ class TestMaxVolumeSetupCallback:
         # pylint: disable=protected-access
         volume._max_volume_setup_callback(MAIN_ZONE, "SSVCTZ2SLIM", " 060")
         assert volume.max_volume == -20.0
+
+
+class TestVolumeUpCeiling:
+    """
+    Test case for volume up stopping at the ceiling.
+
+    A receiver at its ceiling ignores the command and answers nothing, so the
+    caller cannot tell an applied command from an ignored one, and a telnet
+    confirmation would wait for an event that never arrives.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stops_at_the_configured_limit(self):
+        """Check that volume up is not sent once the limit is reached."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        volume._volume = -10.0
+        await volume.async_volume_up()
+        volume._device.api.async_get_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stops_at_the_hardware_ceiling_with_no_limit(self):
+        """Check that the hardware maximum applies when no limit is set."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._volume = 18.0
+        await volume.async_volume_up()
+        volume._device.api.async_get_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "max_volume,current",
+        [(-10.0, -10.5), (None, 17.5), (0.0, -0.5), (-20.0, -80.0)],
+    )
+    async def test_below_the_ceiling_is_sent(self, max_volume, current):
+        """Check that anything below the ceiling still goes out."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = max_volume
+        volume._volume = current
+        await volume.async_volume_up()
+        volume._device.api.async_get_command.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_zero_limit_is_not_treated_as_absent(self):
+        """
+        Check that a limit of 0.0 dB still stops volume up.
+
+        0.0 is a legal limit -- absolute 80 -- and it is falsy, so a
+        truthiness check here silently disables the guard.
+        """
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = 0.0
+        volume._volume = 0.0
+        await volume.async_volume_up()
+        volume._device.api.async_get_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unknown_volume_does_not_block(self):
+        """Check that an unknown volume does not stop the command."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        await volume.async_volume_up()
+        volume._device.api.async_get_command.assert_awaited_once()
