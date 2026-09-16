@@ -251,6 +251,50 @@ class AppCommands:
             ),
         ),
     )
+    GetAudioDelay = AppCommandCmd(
+        cmd_id="3",
+        name="GetAudioDelay",
+        param_list=(
+            AppCommandCmdParam(name="audiodelay"),
+            AppCommandCmdParam(name="autolipsync"),
+            AppCommandCmdParam(name="tvdelay"),
+        ),
+        response_pattern=(
+            AppCommandResponsePattern(
+                update_attribute="_audio_delay",
+                add_zone=False,
+                suffix="/list/param[@name='audiodelay']",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_audio_delay_control",
+                add_zone=False,
+                suffix="/list/param[@name='audiodelay']",
+                get_xml_attribute="control",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_auto_lip_sync",
+                add_zone=False,
+                suffix="/list/param[@name='autolipsync']",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_auto_lip_sync_control",
+                add_zone=False,
+                suffix="/list/param[@name='autolipsync']",
+                get_xml_attribute="control",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_tv_delay",
+                add_zone=False,
+                suffix="/list/param[@name='tvdelay']",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_tv_delay_control",
+                add_zone=False,
+                suffix="/list/param[@name='tvdelay']",
+                get_xml_attribute="control",
+            ),
+        ),
+    )
     SetAudysseyDynamicEQ = AppCommandCmd(
         cmd_id="3",
         name="SetAudyssey",
