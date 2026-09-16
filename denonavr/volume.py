@@ -32,7 +32,11 @@ from .const import (
     Subwoofers,
 )
 from .exceptions import AvrCommandError, AvrProcessingError
-from .foundation import DenonAVRFoundation, convert_on_off_bool
+from .foundation import (
+    DenonAVRFoundation,
+    convert_on_off_bool,
+    convert_string_int_bool,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,7 +121,9 @@ class DenonAVRVolume(DenonAVRFoundation):
     _subwoofer: Optional[bool] = attr.ib(
         converter=attr.converters.optional(convert_on_off_bool), default=None
     )
-    _subwoofer_levels_adjustment: bool = attr.ib(default=True)
+    _subwoofer_levels_adjustment: bool = attr.ib(
+        converter=attr.converters.optional(convert_string_int_bool), default=True
+    )
     _subwoofer_levels: Optional[Dict[Subwoofers, float]] = attr.ib(default=None)
     _valid_subwoofers = get_args(Subwoofers)
     _lfe: Optional[int] = attr.ib(converter=attr.converters.optional(int), default=None)
