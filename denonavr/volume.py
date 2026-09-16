@@ -24,6 +24,7 @@ from .const import (
     STATE_ON,
     SUBWOOFERS_MAP,
     SUBWOOFERS_MAP_REVERSE,
+    VOLUME_MIN,
     Channels,
     Subwoofers,
 )
@@ -47,6 +48,22 @@ def convert_volume(value: Union[float, str]) -> float:
     if value == "--":
         return -80.0
     return float(value)
+
+
+def convert_telnet_volume(value: str) -> float:
+    """
+    Convert a telnet volume parameter to the relative dB scale.
+
+    Telnet reports volume on the absolute scale, as two digits or as three
+    where the last one is a half step: "56" is -24.0 and "565" is -23.5.
+    """
+    value = value.strip()
+    if len(value) < 3:
+        return VOLUME_MIN + float(value)
+
+    whole_number = float(value[0:2])
+    fraction = 0.1 * float(value[2])
+    return VOLUME_MIN + whole_number + fraction
 
 
 def convert_max_volume(value: Union[float, str]) -> Optional[float]:
@@ -101,6 +118,9 @@ class DenonAVRVolume(DenonAVRFoundation):
             self._device.api.add_appcommand_update_tag(tag)
 
         self._device.telnet_api.register_callback("MV", self._volume_callback)
+        # MVMAX is registered as an event but deliberately not read: it is not
+        # a trustworthy source for the volume limit. Registering it keeps it
+        # from confirming a pending MV command or reaching _volume_callback.
         self._device.telnet_api.register_callback("MU", self._mute_callback)
         self._device.telnet_api.register_callback("CV", self._channel_volume_callback)
         self._device.telnet_api.register_callback("PS", self._subwoofer_state_callback)
@@ -115,12 +135,7 @@ class DenonAVRVolume(DenonAVRFoundation):
         if self._device.zone != zone:
             return
 
-        if len(parameter) < 3:
-            self._volume = -80.0 + float(parameter)
-        else:
-            whole_number = float(parameter[0:2])
-            fraction = 0.1 * float(parameter[2])
-            self._volume = -80.0 + whole_number + fraction
+        self._volume = convert_telnet_volume(parameter)
 
     def _mute_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle a muting change event."""

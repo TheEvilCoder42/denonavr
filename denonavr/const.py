@@ -1117,6 +1117,12 @@ ZONE3_URLS = ReceiverURLs(
     command_input_mode_analog_marantz=COMMAND_INPUT_MODE_ANALOG_MARANTZ,
 )
 
+# Volume range of the receiver, in the relative dB scale reported by <volume>
+# and by the MV telnet event. The absolute scale used on the wire is this plus
+# 80.0, so -80.0 is sent as 0 and 18.0 as 98.
+VOLUME_MIN = -80.0
+VOLUME_MAX = 18.0
+
 # Telnet Events
 ALL_TELNET_EVENTS = "ALL"
 TELNET_EVENTS = {
@@ -1131,6 +1137,7 @@ TELNET_EVENTS = {
     "MS",
     "MU",
     "MV",
+    "MVMAX",
     "NS",
     "NSA",
     "NSE",
@@ -1157,6 +1164,12 @@ TELNET_EVENTS = {
     "ZM",
     "Z2",
     "Z3",
+}
+# Events that always accompany another event and must therefore not trigger the
+# generic ALL_TELNET_EVENTS listeners a second time. They still reach listeners
+# registered for the event itself.
+TELNET_QUIET_EVENTS = {
+    "MVMAX",
 }
 ALL_ZONE_TELNET_EVENTS = {
     "DIM",
