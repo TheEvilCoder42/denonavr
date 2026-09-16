@@ -378,7 +378,7 @@ class TestMainFunctions:
             self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
             await self.denon.async_setup()
             await self.denon.async_update()
-            levels = self.denon.vol.subwoofer_levels
+            levels = self.denon.subwoofer_levels
             assert (
                 levels == expected
             ), f"Subwoofer levels are {levels} not {expected} for receiver {receiver}"
@@ -415,7 +415,35 @@ class TestMainFunctions:
         await self.denon.async_update()
 
         assert self.denon.vol.channel_volumes["Subwoofer"] == 0.0
-        assert self.denon.vol.subwoofer_levels["Subwoofer"] == -2.0
+        assert self.denon.subwoofer_levels["Subwoofer"] == -2.0
+
+    @pytest.mark.asyncio
+    async def test_the_subwoofer_level_setter_is_forwarded(self):
+        """Check that the facade forwards rather than reimplementing."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        denon.vol.async_set_subwoofer_level = mock.AsyncMock()
+        await denon.async_set_subwoofer_level("Subwoofer 2", -2.0)
+        denon.vol.async_set_subwoofer_level.assert_awaited_once_with(
+            "Subwoofer 2", -2.0
+        )
+
+    def test_the_subwoofer_level_gate_is_forwarded(self):
+        """Check that a consumer reads the gate the setter itself obeys."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        assert denon.subwoofer_level_status is None
+        denon.vol._subwoofer_level_status = "1"
+        assert denon.subwoofer_level_status is True
+        denon.vol._subwoofer_level_status = "0"
+        assert denon.subwoofer_level_status is False
+
+    def test_one_subwoofer_level_is_forwarded(self):
+        """Check that the per subwoofer getter reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon.vol._subwoofer_level_status = "1"
+        denon.vol._subwoofer1_value = "20"
+        assert denon.subwoofer_level("Subwoofer") == -2.0
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
