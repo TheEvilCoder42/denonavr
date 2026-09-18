@@ -402,6 +402,17 @@ class DenonAVRDeviceInfo:
 
         self._auto_lip_sync = auto_lip_sync
 
+    def _auto_lip_sync_denon_callback(
+        self, zone: str, event: str, parameter: str
+    ) -> None:
+        """Handle a auto lip sync change event of a Denon device."""
+        # Denon carries the setting in the OPALS block, which shares no
+        # prefix structure with the SSHOS block Marantz uses for it
+        if parameter[0:6] != "ALSSET":
+            return
+
+        self._auto_lip_sync = parameter[7:]
+
     async def async_setup(self) -> None:
         """Ensure that configuration is loaded from receiver asynchronously."""
         async with self._setup_lock:
@@ -463,7 +474,11 @@ class DenonAVRDeviceInfo:
             self.telnet_api.register_callback("PS", self._graphic_eq_callback)
             self.telnet_api.register_callback("PS", self._headphone_eq_callback)
 
-            if not self.is_denon:
+            if self.is_denon:
+                self.telnet_api.register_callback(
+                    "OP", self._auto_lip_sync_denon_callback
+                )
+            else:
                 self.telnet_api.register_callback("ILB", self._illumination_callback)
                 self.telnet_api.register_callback("SS", self._auto_lip_sync_callback)
 
