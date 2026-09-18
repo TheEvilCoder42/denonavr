@@ -263,3 +263,20 @@ class TestPerSourceInvalidation:
         audio_delay._delay_callback(MAIN_ZONE, "PS", "DELAY 140")
         audio_delay.notify_input_func("SAT/CBL")
         assert audio_delay.audio_delay == 140
+
+    def test_a_source_change_keeps_the_pushed_delay_on_telnet(self):
+        """Check that the value the receiver pushed is not cleared."""
+        audio_delay = DenonAVRAudioDelay()
+        # pylint: disable=protected-access
+        audio_delay.notify_input_func("SAT/CBL")
+        with mock.patch.object(
+            type(audio_delay._device),
+            "telnet_available",
+            mock.PropertyMock(return_value=True),
+        ):
+            # The receiver pushes the new source's delay before the status
+            # update that reports the source change arrives
+            audio_delay._delay_callback(MAIN_ZONE, "PS", "DELAY 000")
+            audio_delay.notify_input_func("NET")
+
+        assert audio_delay.audio_delay == 0
