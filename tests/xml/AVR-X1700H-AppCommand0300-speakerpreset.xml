@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<name>GetSpeakerPreset</name>
+<list>
+<param name="preset" control="2">1</param>
+</list>
+</cmd>
+</rx>
