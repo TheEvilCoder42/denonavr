@@ -48,6 +48,7 @@ from .foundation import (
 )
 from .input import DenonAVRInput, input_factory
 from .soundmode import DenonAVRSoundMode, sound_mode_factory
+from .speakerpreset import DenonAVRSpeakerPreset, speaker_preset_factory
 from .tonecontrol import DenonAVRToneControl, tone_control_factory
 from .volume import DenonAVRVolume, volume_factory
 
@@ -135,6 +136,11 @@ class DenonAVR(DenonAVRFoundation):
         default=attr.Factory(sound_mode_factory, takes_self=True),
         init=False,
     )
+    speakerpreset: DenonAVRSpeakerPreset = attr.ib(
+        validator=attr.validators.instance_of(DenonAVRSpeakerPreset),
+        default=attr.Factory(speaker_preset_factory, takes_self=True),
+        init=False,
+    )
     tonecontrol: DenonAVRToneControl = attr.ib(
         validator=attr.validators.instance_of(DenonAVRToneControl),
         default=attr.Factory(tone_control_factory, takes_self=True),
@@ -194,6 +200,7 @@ class DenonAVR(DenonAVRFoundation):
             await self.tonecontrol.async_setup()
             self.vol.setup()
             self.audyssey.setup()
+            self.speakerpreset.setup()
             self.dirac.setup()
 
             for zone_name, zone_item in self._zones.items():
@@ -266,6 +273,10 @@ class DenonAVR(DenonAVRFoundation):
     async def async_update_audyssey(self):
         """Get Audyssey settings."""
         await self.audyssey.async_update()
+
+    async def async_update_speaker_preset(self):
+        """Get the speaker preset."""
+        await self.speakerpreset.async_update()
 
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
@@ -717,7 +728,7 @@ class DenonAVR(DenonAVRFoundation):
 
         Possible values are: "1", "2"
         """
-        return self._device.speaker_preset
+        return self.speakerpreset.speaker_preset
 
     @property
     def bt_transmitter(self) -> Optional[bool]:
@@ -1094,7 +1105,7 @@ class DenonAVR(DenonAVRFoundation):
 
         Valid preset values are 1-2.
         """
-        await self._device.async_speaker_preset(preset)
+        await self.speakerpreset.async_speaker_preset(preset)
 
     async def async_speaker_preset_toggle(self) -> None:
         """
@@ -1102,7 +1113,7 @@ class DenonAVR(DenonAVRFoundation):
 
         Only available if using Telnet.
         """
-        await self._device.async_speaker_preset_toggle()
+        await self.speakerpreset.async_speaker_preset_toggle()
 
     async def async_bt_transmitter_on(self) -> None:
         """Turn on Bluetooth transmitter on receiver."""
