@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+This module covers tests of the GetSurroundParameter reads.
+
+:copyright: (c) 2016 by Oliver Goetz.
+:license: MIT, see LICENSE for more details.
+"""
+
+from typing import Optional
+
+import pytest
+from pytest_httpx import HTTPXMock
+
+from denonavr.appcommand import AppCommands
+from denonavr.const import MAIN_ZONE, ZONE2
+from denonavr.exceptions import AvrProcessingError
+from denonavr.volume import (
+    DenonAVRVolume,
+    convert_adjustable,
+    convert_subwoofer_output,
+)
+
+APPCOMMAND_URL = "/goform/AppCommand.xml"
+APPCOMMAND0300_URL = "/goform/AppCommand0300.xml"
+DIRECT_URL = "/goform/formiPhoneAppDirect.xml"
+
+READABLE = "AVR-X1700H-AppCommand0300-surroundparameter.xml"
+READABLE_OFF = "AVR-X1700H-AppCommand0300-surroundparameter-off.xml"
+NOT_APPLICABLE = "AVR-X1700H-AppCommand0300-surroundparameter-notapplicable.xml"
+UNSUPPORTED = "AVR-X1700H-AppCommand0300-surroundparameter-unsupported.xml"
+
+
+def get_sample_content(filename: str) -> str:
+    """Return sample content form file."""
+    with open(f"tests/xml/{filename}", encoding="utf-8") as file:
+        return file.read()
+
+
+def volume_instance() -> DenonAVRVolume:
+    """Return a volume instance that is ready to be updated."""
+    volume = DenonAVRVolume()
+    # pylint: disable=protected-access
+    volume._device.use_avr_2016_update = True
+    return volume
+
+
+class TestLfeLevelUpdate:
+    """Test case for reading the LFE level from AppCommand0300.xml."""
+
+    @pytest.mark.asyncio
+    async def test_the_http_value_is_already_signed(self, httpx_mock: HTTPXMock):
+        """Check that the level is taken as sent, without a sign flip."""
+        # The receiver sends -2 over HTTP and the magnitude 02 over telnet, so
+        # the telnet callback's * -1 must not be reused here: it would land on
+        # +2, which is inside the plausible range and would go unnoticed
+        httpx_mock.add_response(content=get_sample_content(READABLE))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.lfe == -2
+
+    def test_the_telnet_event_lands_on_the_same_number(self):
+        """Check that both transports report the same level."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._lfe_callback(MAIN_ZONE, "PS", "LFE 02")
+
+        assert volume.lfe == -2
+
+    @pytest.mark.asyncio
+    async def test_the_top_of_the_range_is_read(self, httpx_mock: HTTPXMock):
+        """Check that a level of 0 is a level and not an absent value."""
+        httpx_mock.add_response(content=get_sample_content(READABLE_OFF))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.lfe == 0
+
+
+class TestSubwooferOutputUpdate:
+    """Test case for reading the subwoofer output from AppCommand0300.xml."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            pytest.param(READABLE, True, id="on"),
+            pytest.param(READABLE_OFF, False, id="off"),
+        ],
+    )
+    async def test_the_state_is_read(
+        self, httpx_mock: HTTPXMock, content: str, expected: bool
+    ):
+        """Check that the 1/0 the receiver sends becomes a bool."""
+        httpx_mock.add_response(content=get_sample_content(content))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.subwoofer is expected
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            pytest.param("ON", True, id="telnet-on"),
+            pytest.param("OFF", False, id="telnet-off"),
+            pytest.param("1", True, id="http-on"),
+            pytest.param("0", False, id="http-off"),
+            pytest.param("", None, id="empty"),
+            pytest.param("2", None, id="unknown"),
+        ],
+    )
+    def test_both_spellings_are_converted(self, value: str, expected: Optional[bool]):
+        """Check that the converter takes the telnet and the HTTP spelling."""
+        assert convert_subwoofer_output(value) is expected
+
+
+class TestUnreadableParameters:
+    """Test case for parameters GetSurroundParameter declines to give."""
+
+    @pytest.mark.asyncio
+    async def test_a_not_applicable_parameter_is_unknown(self, httpx_mock: HTTPXMock):
+        """Check that an empty body is reported as unknown, not as a value."""
+        # Rendering an unreadable subwoofer toggle as "off" is worse than
+        # rendering it unknown, because the user's next action is to press it
+        httpx_mock.add_response(content=get_sample_content(NOT_APPLICABLE))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.lfe is None
+        assert volume.subwoofer is None
+
+
+class TestAdjustableFlags:
+    """Test case for whether the receiver lets each parameter change."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "content,lfe,subwoofer",
+        [
+            pytest.param(READABLE, True, True, id="readable"),
+            pytest.param(NOT_APPLICABLE, False, False, id="not-applicable"),
+        ],
+    )
+    async def test_the_flags_follow_the_control_attribute(
+        self, httpx_mock: HTTPXMock, content: str, lfe: bool, subwoofer: bool
+    ):
+        """Check that each flag is what the receiver's control attribute says."""
+        httpx_mock.add_response(content=get_sample_content(content))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.lfe_adjustable is lfe
+        assert volume.subwoofer_adjustable is subwoofer
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            pytest.param("2", True, id="adjustable"),
+            pytest.param("1", False, id="reported-only"),
+            pytest.param("0", False, id="not-applicable"),
+        ],
+    )
+    def test_only_control_2_is_adjustable(self, value: str, expected: bool):
+        """Check that anything but 2 is reported as not adjustable."""
+        assert convert_adjustable(value) is expected
+
+    def test_the_flags_are_unknown_before_a_read(self):
+        """Check that not having asked is not reported as not adjustable."""
+        volume = DenonAVRVolume()
+
+        assert volume.lfe_adjustable is None
+        assert volume.subwoofer_adjustable is None
+
+    @pytest.mark.asyncio
+    async def test_a_device_without_the_command_leaves_them_unknown(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that an unanswered command reports neither flag."""
+        httpx_mock.add_response(content=get_sample_content(UNSUPPORTED))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.lfe_adjustable is None
+        assert volume.subwoofer_adjustable is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message,value,expected,flag",
+        [
+            pytest.param("PSLFE 05", "lfe", -5, "lfe_adjustable", id="lfe"),
+            pytest.param(
+                "PSSWR ON", "subwoofer", True, "subwoofer_adjustable", id="subwoofer"
+            ),
+        ],
+    )
+    async def test_telnet_does_not_make_them_adjustable(
+        self,
+        httpx_mock: HTTPXMock,
+        message: str,
+        value: str,
+        expected: object,
+        flag: str,
+    ):
+        """Check that a telnet event updates the value and leaves the flag."""
+        # Telnet reports the stored value whether or not the receiver lets it
+        # change, so a value arriving there says nothing about a write landing
+        httpx_mock.add_response(content=get_sample_content(NOT_APPLICABLE))
+        volume = volume_instance()
+        volume.setup()
+        await volume.async_update_lfe()
+
+        # pylint: disable=protected-access
+        volume._device.telnet_api._process_event(message)
+
+        assert getattr(volume, value) == expected
+        assert getattr(volume, flag) is False
+
+
+class TestSurroundParameterRequest:
+    """Test case for the request the update sends."""
+
+    @pytest.mark.asyncio
+    async def test_the_param_names_are_sent(self, httpx_mock: HTTPXMock):
+        """Check that the two param names the receiver answers to are used."""
+        # The receiver recognises "lfe" and "sw"; "subwoofer" is rejected and
+        # a wrong param name takes the whole command out of the response
+        httpx_mock.add_response(content=get_sample_content(READABLE))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        request = httpx_mock.get_requests()[0]
+        body = request.content.decode("utf-8")
+        assert request.url.path == APPCOMMAND0300_URL
+        assert "<name>GetSurroundParameter</name>" in body
+        assert '<param name="lfe"' in body
+        assert '<param name="sw"' in body
+
+    @pytest.mark.asyncio
+    async def test_a_device_without_the_command_does_not_raise(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that an unanswered command leaves both values unknown."""
+        httpx_mock.add_response(content=get_sample_content(UNSUPPORTED))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.lfe is None
+        assert volume.subwoofer is None
+
+    @pytest.mark.asyncio
+    async def test_an_unsetup_device_raises(self):
+        """Check that an unknown update method is reported."""
+        volume = DenonAVRVolume()
+        with pytest.raises(AvrProcessingError):
+            await volume.async_update_lfe()
+
+    def test_the_tag_is_registered_for_a_global_update(self):
+        """Check that a global AppCommand0300.xml update carries the tag."""
+        volume = DenonAVRVolume()
+        volume.setup()
+
+        # pylint: disable=protected-access
+        tags = volume._device.api._appcommand0300_update_tags
+        assert [tag.name for tag in tags] == ["GetSurroundParameter"]
+        assert AppCommands.GetSurroundParameter.param_list == tags[0].param_list
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "zone,expected",
+        [
+            pytest.param(MAIN_ZONE, -42.5, id="main"),
+            pytest.param(ZONE2, -40.0, id="zone2"),
+        ],
+    )
+    async def test_the_every_poll_update_does_not_request_it(
+        self, httpx_mock: HTTPXMock, zone: str, expected: float
+    ):
+        """Check that the poll path stays on AppCommand.xml."""
+        # async_update_volume runs for every zone on every poll; adding a
+        # 0300 request to it would cost a POST per zone per cycle
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand-update-volume.xml")
+        )
+        volume = volume_instance()
+        # pylint: disable=protected-access
+        volume._device.zone = zone
+        await volume.async_update()
+
+        paths = {request.url.path for request in httpx_mock.get_requests()}
+        assert paths == {APPCOMMAND_URL}
+        assert volume.volume == expected
+        assert volume.lfe is None
+
+
+class TestSubwooferToggle:
+    """Test case for the subwoofer toggle over HTTP."""
+
+    @pytest.mark.asyncio
+    async def test_the_toggle_follows_the_http_read(self, httpx_mock: HTTPXMock):
+        """Check that a toggle turns the subwoofer off once it reads on."""
+        # Without the read the state stays None on an HTTP only device and
+        # the toggle sends ON every time
+        httpx_mock.add_response(content=get_sample_content(READABLE))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        httpx_mock.add_response()
+        await volume.async_subwoofer_toggle()
+
+        request = httpx_mock.get_requests()[-1]
+        assert request.url.path == DIRECT_URL
+        assert str(request.url.query, "utf-8") == "PSSWR%20OFF"

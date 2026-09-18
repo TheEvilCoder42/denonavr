@@ -27,7 +27,11 @@ from .const import (
     Channels,
     Subwoofers,
 )
-from .exceptions import AvrCommandError, AvrProcessingError
+from .exceptions import (
+    AvrCommandError,
+    AvrIncompleteResponseError,
+    AvrProcessingError,
+)
 from .foundation import DenonAVRFoundation, convert_on_off_bool
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,6 +49,30 @@ def convert_volume(value: Union[float, str]) -> float:
     return float(value)
 
 
+def convert_subwoofer_output(value: str) -> Optional[bool]:
+    """
+    Convert a subwoofer output state to bool.
+
+    Telnet spells the state ON/OFF, AppCommand0300 spells it 1/0.
+    """
+    state = convert_on_off_bool(value)
+    if state is not None:
+        return state
+    if value in ("0", "1"):
+        return value == "1"
+    return None
+
+
+def convert_adjustable(value: str) -> bool:
+    """
+    Convert a GetSurroundParameter control attribute to bool.
+
+    Only 2 is adjustable: the receiver answers 0 where it is not, and has
+    answered 1 on a parameter it only reports.
+    """
+    return value == "2"
+
+
 @attr.s(auto_attribs=True, on_setattr=DENON_ATTR_SETATTR)
 class DenonAVRVolume(DenonAVRFoundation):
     """This class implements volume functions of Denon AVR receiver."""
@@ -58,12 +86,18 @@ class DenonAVRVolume(DenonAVRFoundation):
     _channel_volumes: Optional[Dict[Channels, float]] = attr.ib(default=None)
     _valid_channels = get_args(Channels)
     _subwoofer: Optional[bool] = attr.ib(
-        converter=attr.converters.optional(convert_on_off_bool), default=None
+        converter=attr.converters.optional(convert_subwoofer_output), default=None
+    )
+    _subwoofer_adjustable: Optional[bool] = attr.ib(
+        converter=attr.converters.optional(convert_adjustable), default=None
     )
     _subwoofer_levels_adjustment: bool = attr.ib(default=True)
     _subwoofer_levels: Optional[Dict[Subwoofers, float]] = attr.ib(default=None)
     _valid_subwoofers = get_args(Subwoofers)
     _lfe: Optional[int] = attr.ib(converter=attr.converters.optional(int), default=None)
+    _lfe_adjustable: Optional[bool] = attr.ib(
+        converter=attr.converters.optional(convert_adjustable), default=None
+    )
     _bass_sync: Optional[int] = attr.ib(
         converter=attr.converters.optional(int), default=None
     )
@@ -73,6 +107,8 @@ class DenonAVRVolume(DenonAVRFoundation):
         AppCommands.GetAllZoneVolume: None,
         AppCommands.GetAllZoneMuteStatus: None,
     }
+    # AppCommand0300.xml interface
+    appcommand0300_attrs = {AppCommands.GetSurroundParameter: None}
     # Status.xml interface
     status_xml_attrs = {"_volume": "./MasterVolume/value", "_muted": "./Mute/value"}
 
@@ -81,6 +117,10 @@ class DenonAVRVolume(DenonAVRFoundation):
         # Add tags for a potential AppCommand.xml update
         for tag in self.appcommand_attrs:
             self._device.api.add_appcommand_update_tag(tag)
+
+        # Add tags for a potential AppCommand0300.xml update
+        for tag in self.appcommand0300_attrs:
+            self._device.api.add_appcommand0300_update_tag(tag)
 
         self._device.telnet_api.register_callback("MV", self._volume_callback)
         self._device.telnet_api.register_callback("MU", self._mute_callback)
@@ -204,6 +244,35 @@ class DenonAVRVolume(DenonAVRFoundation):
                 self.status_xml_attrs, urls, cache_id=cache_id
             )
 
+    async def async_update_lfe(
+        self, global_update: bool = False, cache_id: Optional[Hashable] = None
+    ) -> None:
+        """
+        Update LFE level and subwoofer output state of device.
+
+        This is deliberately not called from async_update: it is an
+        AppCommand0300.xml request and async_update_volume runs for every zone
+        on every poll.
+        """
+        if self._device.use_avr_2016_update is None:
+            raise AvrProcessingError(
+                "Device is not setup correctly, update method not set"
+            )
+
+        # GetSurroundParameter is only available for avr 2016 update
+        if self._device.use_avr_2016_update:
+            try:
+                await self.async_update_attrs_appcommand(
+                    self.appcommand0300_attrs,
+                    appcommand0300=True,
+                    global_update=global_update,
+                    cache_id=cache_id,
+                )
+            except (AvrProcessingError, AvrIncompleteResponseError) as err:
+                # Don't raise an error here, because not all devices support
+                # it. One that does not know GetSurroundParameter answers it short.
+                _LOGGER.debug("Updating LFE failed: %s", err)
+
     ##############
     # Properties #
     ##############
@@ -245,6 +314,15 @@ class DenonAVRVolume(DenonAVRFoundation):
         return self._subwoofer
 
     @property
+    def subwoofer_adjustable(self) -> Optional[bool]:
+        """
+        Return whether the receiver lets the subwoofer output change.
+
+        None until GetSurroundParameter has answered. Telnet does not report it.
+        """
+        return self._subwoofer_adjustable
+
+    @property
     def subwoofer_levels(self) -> Optional[Dict[Subwoofers, Union[bool, float]]]:
         """
         Return the subwoofer levels of the device in dB when enabled.
@@ -264,6 +342,15 @@ class DenonAVRVolume(DenonAVRFoundation):
         Only available if using Telnet.
         """
         return self._lfe
+
+    @property
+    def lfe_adjustable(self) -> Optional[bool]:
+        """
+        Return whether the receiver lets the LFE level change.
+
+        None until GetSurroundParameter has answered. Telnet does not report it.
+        """
+        return self._lfe_adjustable
 
     @property
     def bass_sync(self) -> Optional[int]:

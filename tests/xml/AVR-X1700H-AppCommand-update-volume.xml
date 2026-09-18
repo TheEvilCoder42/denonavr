@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<zone1>
+<volume>-42.5</volume>
+<state>variable</state>
+</zone1>
+<zone2>
+<volume>-40</volume>
+<state>variable</state>
+</zone2>
+</cmd>
+<cmd>
+<zone1>off</zone1>
+<zone2>off</zone2>
+</cmd>
+</rx>
