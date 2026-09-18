@@ -796,9 +796,10 @@ class DenonAVR(DenonAVRFoundation):
         """
         Return the auto lip sync status for the device.
 
-        Only available on Marantz devices and when using Telnet.
+        Both brands push the setting over Telnet, Marantz as SSHOSALS and
+        Denon as OPALSSET, so it is only known while Telnet is connected.
         """
-        return self.auto_lip_sync
+        return self._device.auto_lip_sync
 
     ##########
     # Getter #
