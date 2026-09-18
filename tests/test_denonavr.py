@@ -18,7 +18,7 @@ import denonavr
 from denonavr.api import DenonAVRTelnetApi, DenonAVRTelnetProtocol
 from denonavr.const import SOUND_MODE_MAPPING, STATE_OFF, STATE_ON
 from denonavr.decorators import async_handle_receiver_exceptions
-from denonavr.exceptions import AvrNetworkError, AvrTimoutError
+from denonavr.exceptions import AvrCommandError, AvrNetworkError, AvrTimoutError
 
 FAKE_IP = "10.0.0.0"
 
@@ -895,6 +895,99 @@ class TestAutoLipSync:
         denon._device.telnet_api._process_event(message)
 
         assert denon._device.auto_lip_sync is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "manufacturer,expected",
+        [
+            pytest.param("Denon", "OPALSSET ON", id="denon"),
+            pytest.param("Marantz", "SSHOSALS ON", id="marantz"),
+        ],
+    )
+    async def test_the_telnet_command_is_brand_specific(
+        self, manufacturer: str, expected: str
+    ):
+        """Check that each brand is sent the command its own block knows."""
+        denon = await self.setup_receiver(manufacturer)
+        # pylint: disable=protected-access
+        device = denon._device
+        with (
+            mock.patch.object(
+                type(device), "telnet_available", mock.PropertyMock(return_value=True)
+            ),
+            mock.patch.object(
+                device.telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
+            await denon.async_auto_lip_sync_on()
+
+        send.assert_awaited_once_with(expected)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "manufacturer,expected",
+        [
+            pytest.param("Denon", "OPALSSET%20OFF", id="denon"),
+            pytest.param("Marantz", "SSHOSALS%20OFF", id="marantz"),
+        ],
+    )
+    async def test_the_http_command_is_brand_specific(
+        self, httpx_mock: HTTPXMock, manufacturer: str, expected: str
+    ):
+        """Check that the direct URL carries the command of the brand."""
+        httpx_mock.add_response()
+        denon = await self.setup_receiver(manufacturer)
+        await denon.async_auto_lip_sync_off()
+
+        request = httpx_mock.get_requests()[0]
+        assert request.url.path == "/goform/formiPhoneAppDirect.xml"
+        assert str(request.url.query, "utf-8") == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "async_auto_lip_sync_on",
+            "async_auto_lip_sync_off",
+        ],
+    )
+    async def test_a_denon_no_longer_refuses_the_command(
+        self, httpx_mock: HTTPXMock, command: str
+    ):
+        """Check that the guard that made this Marantz only is gone."""
+        httpx_mock.add_response()
+        denon = await self.setup_receiver("Denon")
+
+        try:
+            await getattr(denon, command)()
+        except AvrCommandError as err:
+            pytest.fail(f"{command} still refuses to run on a Denon: {err}")
+
+    @pytest.mark.asyncio
+    async def test_a_toggle_without_a_known_state_raises(self):
+        """Check that toggle does not guess when no transport reported a value."""
+        denon = await self.setup_receiver("Denon")
+        with pytest.raises(AvrCommandError):
+            await denon.async_auto_lip_sync_toggle()
+
+    @pytest.mark.asyncio
+    async def test_a_marantz_toggle_follows_the_pushed_value(self):
+        """Check that toggle turns the setting off once a push has said it is on."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        device = denon._device
+        device.telnet_api._process_event("SSHOSALS ON")
+        with (
+            mock.patch.object(
+                type(device), "telnet_available", mock.PropertyMock(return_value=True)
+            ),
+            mock.patch.object(
+                device.telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
+            await denon.async_auto_lip_sync_toggle()
+
+        send.assert_awaited_once_with("SSHOSALS OFF")
 
     def test_the_facade_reads_the_device(self):
         """Check that DenonAVR.auto_lip_sync reads the device instance."""
