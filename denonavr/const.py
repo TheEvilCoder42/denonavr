@@ -123,6 +123,7 @@ ReceiverURLs = namedtuple(
         "command_dac_filter",  # Marantz Only
         "command_illumination",  # Marantz Only
         "command_auto_lip_sync",  # Marantz Only
+        "command_auto_lip_sync_denon",  # Denon Only
         "command_dolby_atmos_toggle_denon",
         "command_dolby_atmos_toggle_marantz",
         "command_page_up_denon",
@@ -243,6 +244,7 @@ TelnetCommands = namedtuple(
         "command_dac_filter",  # Marantz Only
         "command_illumination",  # Marantz Only
         "command_auto_lip_sync",  # Marantz Only
+        "command_auto_lip_sync_denon",  # Denon Only
         "command_dolby_atmos_toggle_denon",
         "command_dolby_atmos_toggle_marantz",
         "command_page_up_denon",
@@ -717,6 +719,9 @@ COMMAND_ILLUMINATION = "/goform/formiPhoneAppDirect.xml?ILB%20{mode}"  # Marantz
 COMMAND_AUTO_LIP_SYNC = (
     "/goform/formiPhoneAppDirect.xml?SSHOSALS%20{mode}"  # Marantz Only
 )
+COMMAND_AUTO_LIP_SYNC_DENON = (
+    "/goform/formiPhoneAppDirect.xml?OPALSSET%20{mode}"  # Denon Only
+)
 COMMAND_DOLBY_ATMOS_TOGGLE_DENON = "/goform/formiPhoneAppDirect.xml?RCKSK0410348"
 COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ = "/goform/formiPhoneAppDirect.xml?RCRC51606425"
 COMMAND_PAGE_UP_DENON = "/goform/formiPhoneAppDirect.xml?RCKSK0410945"
@@ -860,6 +865,7 @@ DENONAVR_URLS = ReceiverURLs(
     command_dac_filter=COMMAND_DAC_FILTER,  # Marantz Only
     command_illumination=COMMAND_ILLUMINATION,  # Marantz Only
     command_auto_lip_sync=COMMAND_AUTO_LIP_SYNC,  # Marantz Only
+    command_auto_lip_sync_denon=COMMAND_AUTO_LIP_SYNC_DENON,  # Denon Only
     command_dolby_atmos_toggle_denon=COMMAND_DOLBY_ATMOS_TOGGLE_DENON,
     command_dolby_atmos_toggle_marantz=COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ,
     command_page_up_denon=COMMAND_PAGE_UP_DENON,
@@ -980,6 +986,7 @@ ZONE2_URLS = ReceiverURLs(
     command_dac_filter=COMMAND_DAC_FILTER,  # Marantz Only
     command_illumination=COMMAND_ILLUMINATION,  # Marantz Only
     command_auto_lip_sync=COMMAND_AUTO_LIP_SYNC,  # Marantz Only
+    command_auto_lip_sync_denon=COMMAND_AUTO_LIP_SYNC_DENON,  # Denon Only
     command_dolby_atmos_toggle_denon=COMMAND_DOLBY_ATMOS_TOGGLE_DENON,
     command_dolby_atmos_toggle_marantz=COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ,
     command_page_up_denon=COMMAND_PAGE_UP_DENON,
@@ -1100,6 +1107,7 @@ ZONE3_URLS = ReceiverURLs(
     command_dac_filter=COMMAND_DAC_FILTER,  # Marantz Only
     command_illumination=COMMAND_ILLUMINATION,  # Marantz Only
     command_auto_lip_sync=COMMAND_AUTO_LIP_SYNC,  # Marantz Only
+    command_auto_lip_sync_denon=COMMAND_AUTO_LIP_SYNC_DENON,  # Denon Only
     command_dolby_atmos_toggle_denon=COMMAND_DOLBY_ATMOS_TOGGLE_DENON,
     command_dolby_atmos_toggle_marantz=COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ,
     command_page_up_denon=COMMAND_PAGE_UP_DENON,
@@ -1277,6 +1285,7 @@ DENONAVR_TELNET_COMMANDS = TelnetCommands(
     command_dac_filter="PSDACFIL {mode}",  # Marantz Only
     command_illumination="ILB {mode}",  # Marantz Only
     command_auto_lip_sync="SSHOSALS {mode}",  # Marantz Only
+    command_auto_lip_sync_denon="OPALSSET {mode}",  # Denon Only
     command_dolby_atmos_toggle_denon="RCKSK0410348",
     command_dolby_atmos_toggle_marantz="RCRC51606425",
     command_page_up_denon="RCKSK0410945",
@@ -1395,6 +1404,7 @@ ZONE2_TELNET_COMMANDS = TelnetCommands(
     command_dac_filter="PSDACFIL {mode}",  # Marantz Only
     command_illumination="ILB {mode}",  # Marantz Only
     command_auto_lip_sync="SSHOSALS {mode}",  # Marantz Only
+    command_auto_lip_sync_denon="OPALSSET {mode}",  # Denon Only
     command_dolby_atmos_toggle_denon="RCKSK0410348",
     command_dolby_atmos_toggle_marantz="RCRC51606425",
     command_page_up_denon="RCKSK0410945",
@@ -1513,6 +1523,7 @@ ZONE3_TELNET_COMMANDS = TelnetCommands(
     command_dac_filter="PSDACFIL {mode}",  # Marantz Only
     command_illumination="ILB {mode}",  # Marantz Only
     command_auto_lip_sync="SSHOSALS {mode}",  # Marantz Only
+    command_auto_lip_sync_denon="OPALSSET {mode}",  # Denon Only
     command_dolby_atmos_toggle_denon="RCKSK0410348",
     command_dolby_atmos_toggle_marantz="RCRC51606425",
     command_page_up_denon="RCKSK0410945",
