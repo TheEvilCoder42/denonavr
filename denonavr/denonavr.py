@@ -420,7 +420,13 @@ class DenonAVR(DenonAVRFoundation):
 
     @property
     def lfe(self) -> Optional[int]:
-        """Return LFE level in dB."""
+        """
+        Return LFE level in dB.
+
+        While the setting cannot be changed, this is the stored value telnet
+        reported or None after an HTTP read, whichever came last; lfe_adjustable
+        says whether it can.
+        """
         return self.vol.lfe
 
     @property
@@ -434,7 +440,13 @@ class DenonAVR(DenonAVRFoundation):
 
     @property
     def subwoofer(self) -> Optional[bool]:
-        """Return the state of the subwoofer."""
+        """
+        Return the state of the subwoofer.
+
+        While the setting cannot be changed, this is the stored value telnet
+        reported or None after an HTTP read, whichever came last; subwoofer_adjustable
+        says whether it can.
+        """
         return self.vol.subwoofer
 
     @property

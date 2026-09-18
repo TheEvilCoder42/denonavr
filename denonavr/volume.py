@@ -309,7 +309,9 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         Return the state of the subwoofer.
 
-        Only available if using Telnet.
+        While the setting cannot be changed, this is the stored value telnet
+        reported or None after an HTTP read, whichever came last; subwoofer_adjustable
+        says whether it can.
         """
         return self._subwoofer
 
@@ -339,7 +341,9 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         Return LFE level in dB.
 
-        Only available if using Telnet.
+        While the setting cannot be changed, this is the stored value telnet
+        reported or None after an HTTP read, whichever came last; lfe_adjustable
+        says whether it can.
         """
         return self._lfe
 
@@ -576,11 +580,7 @@ class DenonAVRVolume(DenonAVRFoundation):
             )
 
     async def async_subwoofer_toggle(self) -> None:
-        """
-        Toggle Subwoofer on receiver.
-
-        Only available if using Telnet.
-        """
+        """Toggle Subwoofer on receiver."""
         if self._subwoofer:
             await self.async_subwoofer_off()
         else:
