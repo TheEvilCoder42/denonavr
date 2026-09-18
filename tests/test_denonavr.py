@@ -19,8 +19,30 @@ from denonavr.api import DenonAVRTelnetApi, DenonAVRTelnetProtocol
 from denonavr.const import SOUND_MODE_MAPPING, STATE_OFF, STATE_ON
 from denonavr.decorators import async_handle_receiver_exceptions
 from denonavr.exceptions import AvrNetworkError, AvrTimoutError
+from denonavr.volume import DenonAVRVolume
 
 FAKE_IP = "10.0.0.0"
+
+# Every entry needs a reason. A family is delegated once its read lands, never
+# before: a setter whose getter stays None sends the same value every time.
+VOLUME_MEMBERS_OFF_THE_FACADE = {
+    "setup": "lifecycle, called by DenonAVR.async_setup",
+    "async_update_volume": "internal, driven by DenonAVR.async_update",
+    "async_update_channel_levels": "internal, driven by DenonAVR.async_update",
+    "lfe": "read not implemented; GetSurroundParameter param lfe",
+    "async_lfe": "paired with lfe",
+    "async_lfe_up": "paired with lfe",
+    "async_lfe_down": "paired with lfe",
+    "subwoofer": "read not implemented; GetSurroundParameter param sw",
+    "async_subwoofer_on": "paired with subwoofer",
+    "async_subwoofer_off": "paired with subwoofer",
+    "async_subwoofer_toggle": "paired with subwoofer",
+    "bass_sync": "no read found, and none testable without the hardware",
+    "async_bass_sync": "paired with bass_sync",
+    "async_bass_sync_up": "paired with bass_sync",
+    "async_bass_sync_down": "paired with bass_sync",
+}
+
 
 NO_ZONES = None
 ZONE2 = {"Zone2": None}
@@ -163,6 +185,16 @@ TUNERSTATUS_URL = "/goform/formTuner_TunerXml.xml"
 HDTUNERSTATUS_URL = "/goform/formTuner_HdXml.xml"
 DESCRIPTION_URL1 = "/description.xml"
 DESCRIPTION_URL2 = "/upnp/desc/aios_device/aios_device.xml"
+
+
+def _public_surface(cls: type) -> set:
+    """Return the public properties and methods a class declares itself."""
+    return {
+        name
+        for name, member in vars(cls).items()
+        if not name.startswith("_")
+        and (isinstance(member, property) or callable(member))
+    }
 
 
 def get_sample_content(filename):
@@ -444,6 +476,45 @@ class TestMainFunctions:
         denon.vol._subwoofer_level_status = "1"
         denon.vol._subwoofer1_value = "20"
         assert denon.subwoofer_level("Subwoofer") == -2.0
+
+    def test_the_channel_levels_are_forwarded(self):
+        """Check that the channel level dict reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        assert denon.channel_volumes is None
+        denon.vol._channel_volumes = {"Front Left": 1.5}
+        assert denon.channel_volumes == {"Front Left": 1.5}
+
+    def test_one_channel_level_is_forwarded(self):
+        """Check that the per channel getter reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon.vol._channel_volumes = {"Front Left": 1.5}
+        assert denon.channel_volume("Front Left") == 1.5
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "args"),
+        [
+            pytest.param("async_channel_volume_up", ("Front Left",), id="up"),
+            pytest.param("async_channel_volume_down", ("Front Left",), id="down"),
+            pytest.param("async_channel_volume", ("Front Left", 1.5), id="set"),
+            pytest.param("async_channel_volumes_reset", (), id="reset"),
+        ],
+    )
+    async def test_the_channel_level_setters_are_forwarded(
+        self, method: str, args: tuple
+    ):
+        """Check that the facade forwards rather than reimplementing."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        setattr(denon.vol, method, mock.AsyncMock())
+        await getattr(denon, method)(*args)
+        getattr(denon.vol, method).assert_awaited_once_with(*args)
+
+    def test_every_volume_member_is_on_the_facade(self):
+        """Check that no volume member can only be reached through .vol."""
+        missing = _public_surface(DenonAVRVolume) - _public_surface(denonavr.DenonAVR)
+        assert missing == set(VOLUME_MEMBERS_OFF_THE_FACADE)
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
