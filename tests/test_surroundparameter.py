@@ -8,10 +8,12 @@ This module covers tests of the GetSurroundParameter reads.
 """
 
 from typing import Optional
+from unittest import mock
 
 import pytest
 from pytest_httpx import HTTPXMock
 
+import denonavr
 from denonavr.appcommand import AppCommands
 from denonavr.const import MAIN_ZONE, ZONE2
 from denonavr.exceptions import AvrProcessingError
@@ -24,6 +26,7 @@ from denonavr.volume import (
 APPCOMMAND_URL = "/goform/AppCommand.xml"
 APPCOMMAND0300_URL = "/goform/AppCommand0300.xml"
 DIRECT_URL = "/goform/formiPhoneAppDirect.xml"
+FAKE_IP = "10.0.0.0"
 
 READABLE = "AVR-X1700H-AppCommand0300-surroundparameter.xml"
 READABLE_OFF = "AVR-X1700H-AppCommand0300-surroundparameter-off.xml"
@@ -311,3 +314,57 @@ class TestSubwooferToggle:
         request = httpx_mock.get_requests()[-1]
         assert request.url.path == DIRECT_URL
         assert str(request.url.query, "utf-8") == "PSSWR%20OFF"
+
+
+class TestFacadeDelegation:
+    """Test case for reaching both settings without going through .vol."""
+
+    def test_the_lfe_level_is_forwarded(self):
+        """Check that the LFE level reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        assert denon.lfe is None
+        denon.vol._lfe = "-2"
+        assert denon.lfe == -2
+
+    def test_the_subwoofer_output_is_forwarded(self):
+        """Check that the subwoofer output state reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        assert denon.subwoofer is None
+        denon.vol._subwoofer = "1"
+        assert denon.subwoofer is True
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            pytest.param("lfe_adjustable", id="lfe"),
+            pytest.param("subwoofer_adjustable", id="subwoofer"),
+        ],
+    )
+    def test_the_adjustable_flags_are_forwarded(self, flag: str):
+        """Check that whether a setting can change reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        assert getattr(denon, flag) is None
+        setattr(denon.vol, f"_{flag}", "2")
+        assert getattr(denon, flag) is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "args"),
+        [
+            pytest.param("async_lfe", (-5,), id="lfe-set"),
+            pytest.param("async_lfe_up", (), id="lfe-up"),
+            pytest.param("async_lfe_down", (), id="lfe-down"),
+            pytest.param("async_subwoofer_on", (), id="subwoofer-on"),
+            pytest.param("async_subwoofer_off", (), id="subwoofer-off"),
+            pytest.param("async_subwoofer_toggle", (), id="subwoofer-toggle"),
+            pytest.param("async_update_lfe", (), id="update"),
+        ],
+    )
+    async def test_the_setters_are_forwarded(self, method: str, args: tuple):
+        """Check that the facade forwards rather than reimplementing."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        setattr(denon.vol, method, mock.AsyncMock())
+        await getattr(denon, method)(*args)
+        getattr(denon.vol, method).assert_awaited_once_with(*args)
