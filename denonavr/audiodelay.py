@@ -13,7 +13,7 @@ from typing import Optional
 
 import attr
 
-from .appcommand import AppCommands
+from .appcommand import AppCommandCmdParam, AppCommands
 from .const import DENON_ATTR_SETATTR
 from .exceptions import (
     AvrCommandError,
@@ -200,6 +200,29 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
             )
             return
         await self._device.api.async_get_command(self._device.urls.command_delay_down)
+
+    async def async_set_auto_lip_sync(self, enabled: bool) -> None:
+        """
+        Set auto lip sync on the receiver.
+
+        This is the AppCommand0300 route to the setting, which an HTTP only
+        client can use without knowing the direct command, whose spelling
+        differs between Denon and Marantz.
+        """
+        cmd = attr.evolve(
+            AppCommands.SetAudioDelayAutoLipSync,
+            param_list=(
+                AppCommandCmdParam(name="autolipsync", text="1" if enabled else "0"),
+            ),
+        )
+        res = await self._device.api.async_post_appcommand(
+            self._device.urls.appcommand0300, (cmd,)
+        )
+
+        # SetAudioDelay is a ver-2 command, which answers <rx><cmd>OK</cmd></rx>
+        cmd_result = res.find("cmd")
+        if cmd_result is None or (cmd_result.text or "").strip() != "OK":
+            raise AvrProcessingError("SetAudioDelay command failed")
 
 
 def audio_delay_factory(instance: DenonAVRFoundation) -> DenonAVRAudioDelay:

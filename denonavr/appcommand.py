@@ -295,6 +295,11 @@ class AppCommands:
             ),
         ),
     )
+    SetAudioDelayAutoLipSync = AppCommandCmd(
+        cmd_id="3",
+        name="SetAudioDelay",
+        param_list=(AppCommandCmdParam(name="autolipsync", text="REPLACE"),),
+    )
     SetAudysseyDynamicEQ = AppCommandCmd(
         cmd_id="3",
         name="SetAudyssey",

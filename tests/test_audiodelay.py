@@ -15,10 +15,13 @@ from pytest_httpx import HTTPXMock
 import denonavr
 from denonavr.audiodelay import DenonAVRAudioDelay
 from denonavr.const import MAIN_ZONE, ZONE2
-from denonavr.exceptions import AvrCommandError
+from denonavr.exceptions import AvrCommandError, AvrProcessingError
 
 APPCOMMAND0300_URL = "/goform/AppCommand0300.xml"
 DIRECT_URL = "/goform/formiPhoneAppDirect.xml"
+
+# ver-2 setters answer with the status directly inside the cmd element
+OK_RESPONSE = b'<?xml version="1.0" encoding="utf-8" ?><rx><cmd>OK</cmd></rx>'
 
 
 def get_sample_content(filename):
@@ -50,6 +53,26 @@ class TestAudioDelayUpdate:
         assert audio_delay.audio_delay == 140
         assert audio_delay.auto_lip_sync is True
         assert audio_delay.tv_delay == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "fixture,expected",
+        [
+            pytest.param("AVR-X1700H-AppCommand0300-audiodelay.xml", True, id="on"),
+            pytest.param(
+                "AVR-X1700H-AppCommand0300-audiodelay-lipsync-off.xml", False, id="off"
+            ),
+        ],
+    )
+    async def test_both_auto_lip_sync_states_are_read(
+        self, httpx_mock: HTTPXMock, fixture: str, expected: bool
+    ):
+        """Check that the off state is not confused with an absent value."""
+        httpx_mock.add_response(content=get_sample_content(fixture))
+        audio_delay = audio_delay_instance()
+        await audio_delay.async_update()
+
+        assert audio_delay.auto_lip_sync is expected
 
     @pytest.mark.asyncio
     async def test_unavailable_tv_delay_reads_as_none(self, httpx_mock: HTTPXMock):
@@ -134,6 +157,38 @@ class TestSetAudioDelay:
             await audio_delay.async_delay(50)
 
         send.assert_awaited_once_with("PSDELAY 050")
+
+
+class TestSetAutoLipSync:
+    """Test case for the AppCommand0300 auto lip sync setter."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "enabled,expected",
+        [pytest.param(True, "1", id="on"), pytest.param(False, "0", id="off")],
+    )
+    async def test_the_value_is_sent_as_a_digit(
+        self, httpx_mock: HTTPXMock, enabled: bool, expected: str
+    ):
+        """Check that the AppCommand parameter carries 1 or 0."""
+        httpx_mock.add_response(content=OK_RESPONSE)
+        audio_delay = DenonAVRAudioDelay()
+        await audio_delay.async_set_auto_lip_sync(enabled)
+
+        request = httpx_mock.get_requests()[0]
+        assert request.url.path == APPCOMMAND0300_URL
+        body = request.content.decode("utf-8")
+        assert f'<param name="autolipsync">{expected}</param>' in body
+        assert "<name>SetAudioDelay</name>" in body
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_command_raises(self, httpx_mock: HTTPXMock):
+        """Check that an answer other than OK is not reported as success."""
+        httpx_mock.add_response(content=b"<rx><cmd>ERROR</cmd></rx>")
+        audio_delay = DenonAVRAudioDelay()
+
+        with pytest.raises(AvrProcessingError):
+            await audio_delay.async_set_auto_lip_sync(True)
 
 
 class TestSettingsUpdate:
