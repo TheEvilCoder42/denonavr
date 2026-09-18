@@ -828,10 +828,12 @@ class DenonAVR(DenonAVRFoundation):
         """
         Return the auto lip sync status for the device.
 
-        Read from GetAudioDelay, which needs async_update_settings(). Marantz
-        devices also push it over Telnet, which is the only source before the
-        first settings update.
+        Both brands push the setting over Telnet, so that value wins while
+        Telnet is connected. Otherwise it comes from GetAudioDelay, which
+        needs async_update_settings().
         """
+        if self._device.telnet_available and self._device.auto_lip_sync is not None:
+            return self._device.auto_lip_sync
         if self.audiodelay.auto_lip_sync is not None:
             return self.audiodelay.auto_lip_sync
         return self._device.auto_lip_sync
