@@ -927,6 +927,55 @@ class TestAutoLipSync:
             pytest.fail(f"{command} still refuses to run on a Denon: {err}")
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            pytest.param("SSHOSALS ON", True, id="on"),
+            pytest.param("SSHOSALS OFF", False, id="off"),
+        ],
+    )
+    async def test_a_marantz_event_moves_the_value(self, message: str, expected: bool):
+        """Check that an SSHOSALS event arrives through the telnet event path."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        denon._device.telnet_api._process_event(message)
+
+        assert denon._device.auto_lip_sync is expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param("SSHOSCONARC ON", id="arc"),
+            pytest.param("SSHOSRSS ON", id="rss"),
+            pytest.param("SSHOS END", id="block-terminator"),
+        ],
+    )
+    async def test_the_other_sshos_members_are_ignored(self, message: str):
+        """Check that the neighbours in the block do not leak into the value."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        denon._device.telnet_api._process_event(message)
+
+        assert denon._device.auto_lip_sync is None
+
+    @pytest.mark.asyncio
+    async def test_a_marantz_toggle_follows_the_pushed_value(self):
+        """Check that toggle turns the setting off once a push has said it is on."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        device = denon._device
+        device.telnet_api._process_event("SSHOSALS ON")
+        with mock.patch.object(
+            type(device), "telnet_available", mock.PropertyMock(return_value=True)
+        ), mock.patch.object(
+            device.telnet_api, "async_send_commands", mock.AsyncMock()
+        ) as send:
+            await denon.async_auto_lip_sync_toggle()
+
+        send.assert_awaited_once_with("SSHOSALS OFF")
+
+    @pytest.mark.asyncio
     async def test_a_telnet_push_is_not_shadowed_by_the_settings_value(self):
         """Check that the pushed value wins over the one read over HTTP."""
         denon = await self.setup_receiver("Denon")

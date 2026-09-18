@@ -389,18 +389,11 @@ class DenonAVRDeviceInfo:
             self._illumination = parameter[4:]
 
     def _auto_lip_sync_callback(self, zone: str, event: str, parameter: str) -> None:
-        """Handle a auto lip sync change event."""
-        if parameter[0:3] != "HOS":
+        """Handle a auto lip sync change event of a Marantz device."""
+        if parameter[0:6] != "HOSALS":
             return
 
-        if parameter[6:] == "HOSALS":
-            auto_lip_sync = parameter[5:]
-        elif parameter[3:] == "HOS":
-            auto_lip_sync = parameter[4:]
-        else:
-            return
-
-        self._auto_lip_sync = auto_lip_sync
+        self._auto_lip_sync = parameter[7:]
 
     def _auto_lip_sync_denon_callback(
         self, zone: str, event: str, parameter: str
