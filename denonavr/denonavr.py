@@ -267,6 +267,10 @@ class DenonAVR(DenonAVRFoundation):
         """Get Audyssey settings."""
         await self.audyssey.async_update()
 
+    async def async_update_lfe(self) -> None:
+        """Get the LFE level and the subwoofer output state."""
+        await self.vol.async_update_lfe()
+
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
         return await self._device.api.async_get_command(request)
@@ -383,6 +387,16 @@ class DenonAVR(DenonAVRFoundation):
         Minimum is -80.0, maximum at 18.0
         """
         return self.vol.volume
+
+    @property
+    def lfe(self) -> Optional[int]:
+        """Return LFE level in dB."""
+        return self.vol.lfe
+
+    @property
+    def subwoofer(self) -> Optional[bool]:
+        """Return the state of the subwoofer."""
+        return self.vol.subwoofer
 
     @property
     def input_func(self) -> Optional[str]:
@@ -921,6 +935,34 @@ class DenonAVR(DenonAVRFoundation):
     async def async_mute(self, mute: bool) -> None:
         """Mute receiver."""
         await self.vol.async_mute(mute)
+
+    async def async_lfe(self, lfe: int) -> None:
+        """
+        Set LFE level on receiver.
+
+        :param lfe: LFE level to set. Valid values are -10 to 0.
+        """
+        await self.vol.async_lfe(lfe)
+
+    async def async_lfe_up(self) -> None:
+        """Increase LFE on receiver."""
+        await self.vol.async_lfe_up()
+
+    async def async_lfe_down(self) -> None:
+        """Decrease LFE on receiver."""
+        await self.vol.async_lfe_down()
+
+    async def async_subwoofer_on(self) -> None:
+        """Turn on Subwoofer on receiver."""
+        await self.vol.async_subwoofer_on()
+
+    async def async_subwoofer_off(self) -> None:
+        """Turn off Subwoofer on receiver."""
+        await self.vol.async_subwoofer_off()
+
+    async def async_subwoofer_toggle(self) -> None:
+        """Toggle Subwoofer on receiver."""
+        await self.vol.async_subwoofer_toggle()
 
     async def async_enable_tone_control(self) -> None:
         """Enable tone control to change settings like bass or treble."""
