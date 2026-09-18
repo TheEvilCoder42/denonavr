@@ -3,8 +3,8 @@
 <cmd>
 <name>GetSurroundParameter</name>
 <list>
-<param name="lfe" control="2">0</param>
-<param name="sw" control="2">0</param>
+<param name="lfe" control="2">-5</param>
+<param name="sw" control="0"></param>
 </list>
 </cmd>
 </rx>

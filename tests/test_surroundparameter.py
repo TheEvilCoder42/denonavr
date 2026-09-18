@@ -24,8 +24,12 @@ APPCOMMAND0300_URL = "/goform/AppCommand0300.xml"
 DIRECT_URL = "/goform/formiPhoneAppDirect.xml"
 FAKE_IP = "10.0.0.0"
 
-READABLE = "AVR-X1700H-AppCommand0300-surroundparameter.xml"
-READABLE_OFF = "AVR-X1700H-AppCommand0300-surroundparameter-off.xml"
+# Every fixture reproduces a state the AVR-X1700H was measured in. The two
+# parameters have never been readable in the same response: lfe answers only
+# while the incoming stream carries an LFE channel, sw only in MSSTEREO
+BITSTREAM = "AVR-X1700H-AppCommand0300-surroundparameter-bitstream.xml"
+STEREO = "AVR-X1700H-AppCommand0300-surroundparameter-stereo.xml"
+STEREO_OFF = "AVR-X1700H-AppCommand0300-surroundparameter-stereo-off.xml"
 NOT_APPLICABLE = "AVR-X1700H-AppCommand0300-surroundparameter-notapplicable.xml"
 UNSUPPORTED = "AVR-X1700H-AppCommand0300-surroundparameter-unsupported.xml"
 
@@ -50,29 +54,28 @@ class TestLfeLevelUpdate:
     @pytest.mark.asyncio
     async def test_the_http_value_is_already_signed(self, httpx_mock: HTTPXMock):
         """Check that the level is taken as sent, without a sign flip."""
-        # The receiver sends -2 over HTTP and the magnitude 02 over telnet, so
+        # The receiver sends -5 over HTTP and the magnitude 05 over telnet, so
         # the telnet callback's * -1 must not be reused here: it would land on
-        # +2, which is inside the plausible range and would go unnoticed
-        httpx_mock.add_response(content=get_sample_content(READABLE))
+        # +5, which is inside the plausible range and would go unnoticed
+        httpx_mock.add_response(content=get_sample_content(BITSTREAM))
         volume = volume_instance()
         await volume.async_update_lfe()
 
-        assert volume.lfe == -2
+        assert volume.lfe == -5
 
     def test_the_telnet_event_lands_on_the_same_number(self):
         """Check that both transports report the same level."""
         volume = DenonAVRVolume()
         # pylint: disable=protected-access
-        volume._lfe_callback(MAIN_ZONE, "PS", "LFE 02")
+        volume._lfe_callback(MAIN_ZONE, "PS", "LFE 05")
 
-        assert volume.lfe == -2
+        assert volume.lfe == -5
 
-    @pytest.mark.asyncio
-    async def test_the_top_of_the_range_is_read(self, httpx_mock: HTTPXMock):
+    def test_the_top_of_the_range_is_read(self):
         """Check that a level of 0 is a level and not an absent value."""
-        httpx_mock.add_response(content=get_sample_content(READABLE_OFF))
-        volume = volume_instance()
-        await volume.async_update_lfe()
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._lfe_callback(MAIN_ZONE, "PS", "LFE 00")
 
         assert volume.lfe == 0
 
@@ -84,8 +87,8 @@ class TestSubwooferOutputUpdate:
     @pytest.mark.parametrize(
         "content,expected",
         [
-            pytest.param(READABLE, True, id="on"),
-            pytest.param(READABLE_OFF, False, id="off"),
+            pytest.param(STEREO, True, id="on"),
+            pytest.param(STEREO_OFF, False, id="off"),
         ],
     )
     async def test_the_state_is_read(
@@ -141,15 +144,46 @@ class TestUnreadableParameters:
         assert volume._subwoofer_control == 0
 
     @pytest.mark.asyncio
-    async def test_a_readable_parameter_reports_control_2(self, httpx_mock: HTTPXMock):
-        """Check that a populated parameter carries the readable marker."""
-        httpx_mock.add_response(content=get_sample_content(READABLE))
+    @pytest.mark.parametrize(
+        ("content", "lfe_control", "subwoofer_control"),
+        [
+            pytest.param(BITSTREAM, 2, 0, id="bitstream"),
+            pytest.param(STEREO, 0, 2, id="stereo"),
+        ],
+    )
+    async def test_the_two_parameters_are_gated_separately(
+        self,
+        httpx_mock: HTTPXMock,
+        content: str,
+        lfe_control: int,
+        subwoofer_control: int,
+    ):
+        """Check that each parameter carries its own readable marker."""
+        # Measured on an AVR-X1700H: the two are never readable at once, so a
+        # reader that took one parameter's control for the other's would
+        # report a value the receiver declined to give in every state
+        httpx_mock.add_response(content=get_sample_content(content))
         volume = volume_instance()
         await volume.async_update_lfe()
 
         # pylint: disable=protected-access
-        assert volume._lfe_control == 2
-        assert volume._subwoofer_control == 2
+        assert volume._lfe_control == lfe_control
+        assert volume._subwoofer_control == subwoofer_control
+
+    @pytest.mark.asyncio
+    async def test_the_subwoofer_is_unknown_under_a_bitstream(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that an unreadable subwoofer output is not reported as off."""
+        # The receiver answers control="0" for sw while a bitstream plays,
+        # with GetSubwooferLevel reporting status 1 and telnet PSSWR ON in the
+        # same moment: the subwoofer is on and the HTTP read declines to say so
+        httpx_mock.add_response(content=get_sample_content(BITSTREAM))
+        volume = volume_instance()
+        await volume.async_update_lfe()
+
+        assert volume.lfe == -5
+        assert volume.subwoofer is None
 
 
 class TestSurroundParameterRequest:
@@ -160,7 +194,7 @@ class TestSurroundParameterRequest:
         """Check that the two param names the receiver answers to are used."""
         # The receiver recognises "lfe" and "sw"; "subwoofer" is rejected and
         # a wrong param name takes the whole command out of the response
-        httpx_mock.add_response(content=get_sample_content(READABLE))
+        httpx_mock.add_response(content=get_sample_content(BITSTREAM))
         volume = volume_instance()
         await volume.async_update_lfe()
 
@@ -236,7 +270,7 @@ class TestSubwooferToggle:
         """Check that a toggle turns the subwoofer off once it reads on."""
         # Without the read the state stays None on an HTTP only device and
         # the toggle sends ON every time
-        httpx_mock.add_response(content=get_sample_content(READABLE))
+        httpx_mock.add_response(content=get_sample_content(STEREO))
         volume = volume_instance()
         await volume.async_update_lfe()
 
