@@ -1344,28 +1344,26 @@ class DenonAVR(DenonAVRFoundation):
         await self._device.async_illumination(mode)
 
     async def async_auto_lip_sync_on(self) -> None:
-        """
-        Turn on auto lip sync on receiver.
-
-        Only available on Marantz devices.
-        """
+        """Turn on auto lip sync on receiver."""
         await self._device.async_auto_lip_sync_on()
 
     async def async_auto_lip_sync_off(self) -> None:
-        """
-        Turn off auto lip sync on receiver.
-
-        Only available on Marantz devices.
-        """
+        """Turn off auto lip sync on receiver."""
         await self._device.async_auto_lip_sync_off()
 
     async def async_auto_lip_sync_toggle(self) -> None:
         """
         Toggle auto lip sync on receiver.
 
-        Only available on Marantz devices and when using Telnet.
+        Decides on auto_lip_sync, which over HTTP is only known after
+        async_update_settings().
         """
-        await self._device.async_auto_lip_sync_toggle()
+        if self.auto_lip_sync is None:
+            raise AvrCommandError("Auto lip sync state is unknown")
+        if self.auto_lip_sync:
+            await self._device.async_auto_lip_sync_off()
+        else:
+            await self._device.async_auto_lip_sync_on()
 
     async def async_page_up(self) -> None:
         """Page Up on receiver."""

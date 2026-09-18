@@ -1028,7 +1028,7 @@ class DenonAVRDeviceInfo:
         """
         Return the auto lip sync status for the device.
 
-        Only available on Marantz devices and when using Telnet.
+        Only available when using Telnet.
         """
         return self._auto_lip_sync
 
@@ -1840,55 +1840,30 @@ class DenonAVRDeviceInfo:
                 self.urls.command_illumination.format(mode=mapped_mode)
             )
 
-    async def async_auto_lip_sync_on(self) -> None:
-        """
-        Turn on auto lip sync on receiver.
-
-        Only available on Marantz devices.
-        """
-        if self.is_denon:
-            raise AvrCommandError("Auto lip sync is only available for Marantz devices")
-
+    async def _async_auto_lip_sync(self, mode: str) -> None:
+        """Send an auto lip sync command in the spelling of the brand."""
         if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_auto_lip_sync.format(mode="ON")
+            command = (
+                self.telnet_commands.command_auto_lip_sync_denon
+                if self.is_denon
+                else self.telnet_commands.command_auto_lip_sync
             )
+            await self.telnet_api.async_send_commands(command.format(mode=mode))
         else:
-            await self.api.async_get_command(
-                self.urls.command_auto_lip_sync.format(mode="ON")
+            command = (
+                self.urls.command_auto_lip_sync_denon
+                if self.is_denon
+                else self.urls.command_auto_lip_sync
             )
+            await self.api.async_get_command(command.format(mode=mode))
+
+    async def async_auto_lip_sync_on(self) -> None:
+        """Turn on auto lip sync on receiver."""
+        await self._async_auto_lip_sync("ON")
 
     async def async_auto_lip_sync_off(self) -> None:
-        """
-        Turn off auto lip sync on receiver.
-
-        Only available on Marantz devices.
-        """
-        if self.is_denon:
-            raise AvrCommandError("Auto lip sync is only available for Marantz devices")
-
-        if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_auto_lip_sync.format(mode="OFF")
-            )
-        else:
-            await self.api.async_get_command(
-                self.urls.command_auto_lip_sync.format(mode="OFF")
-            )
-
-    async def async_auto_lip_sync_toggle(self) -> None:
-        """
-        Toggle auto lip sync on receiver.
-
-        Only available on Marantz devices and when using Telnet.
-        """
-        if self.is_denon:
-            raise AvrCommandError("Auto lip sync is only available for Marantz devices")
-
-        if self._auto_lip_sync:
-            await self.async_auto_lip_sync_off()
-        else:
-            await self.async_auto_lip_sync_on()
+        """Turn off auto lip sync on receiver."""
+        await self._async_auto_lip_sync("OFF")
 
     async def async_page_up(self) -> None:
         """Page Up on receiver."""
