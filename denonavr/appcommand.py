@@ -251,6 +251,21 @@ class AppCommands:
             ),
         ),
     )
+    # The control attribute is not read back: an AVR-X1700H answers with
+    # control="2" in every state it was captured in, standby included, so a
+    # control attribute here would be an unused field with an untestable branch
+    GetSpeakerPreset = AppCommandCmd(
+        cmd_id="3",
+        name="GetSpeakerPreset",
+        param_list=(AppCommandCmdParam(name="preset"),),
+        response_pattern=(
+            AppCommandResponsePattern(
+                update_attribute="_speaker_preset",
+                add_zone=False,
+                suffix="/list/param[@name='preset']",
+            ),
+        ),
+    )
     GetAudioDelay = AppCommandCmd(
         cmd_id="3",
         name="GetAudioDelay",
