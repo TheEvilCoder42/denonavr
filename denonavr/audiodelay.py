@@ -69,12 +69,15 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
         The receiver stores the delay per input source, so the value held is
         treated as the previous source's, even one read since the change, and
         is reported as unknown until the next update.
+
+        A telnet client is pushed the new source's value within ~1.5 s, well
+        before the status update this runs from, so clearing would discard it.
         """
         if input_func == self._input_func:
             return
 
         # The first source seen is not a change
-        if self._input_func is not None:
+        if self._input_func is not None and not self._device.telnet_available:
             self._audio_delay = None
 
         self._input_func = input_func
@@ -125,9 +128,10 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
         """
         Return the audio delay of the device in ms.
 
-        The value is stored per input source on the receiver, so it is reset
-        to None when the input source changes and is only known again after
-        the next update.
+        The value is stored per input source on the receiver. An HTTP only
+        client resets it to None when the input source changes and knows it
+        again after the next update; a telnet client is pushed the new
+        source's value and keeps reporting one throughout.
 
         This is a main zone setting and None on a zone instance.
         """
