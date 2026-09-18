@@ -271,3 +271,35 @@ class AppCommands:
         name="SetAudyssey",
         param_list=(AppCommandCmdParam(name="dynamicvol", text="REPLACE"),),
     )
+    GetSurroundParameter = AppCommandCmd(
+        cmd_id="3",
+        name="GetSurroundParameter",
+        param_list=(
+            AppCommandCmdParam(name="lfe"),
+            AppCommandCmdParam(name="sw"),
+        ),
+        response_pattern=(
+            AppCommandResponsePattern(
+                update_attribute="_lfe",
+                add_zone=False,
+                suffix="/list/param[@name='lfe']",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_lfe_control",
+                add_zone=False,
+                suffix="/list/param[@name='lfe']",
+                get_xml_attribute="control",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer",
+                add_zone=False,
+                suffix="/list/param[@name='sw']",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer_control",
+                add_zone=False,
+                suffix="/list/param[@name='sw']",
+                get_xml_attribute="control",
+            ),
+        ),
+    )
