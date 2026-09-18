@@ -20,14 +20,34 @@ from denonavr.exceptions import AvrCommandError, AvrProcessingError
 from denonavr.speakerpreset import DenonAVRSpeakerPreset
 
 APPCOMMAND0300_URL = "/goform/AppCommand0300.xml"
+DEVICEINFO_URL = "/goform/Deviceinfo.xml"
 DIRECT_URL = "/goform/formiPhoneAppDirect.xml"
 FAKE_IP = "10.0.0.0"
+# What a bare module instance talks to, unlike DenonAVR(FAKE_IP).
+DEFAULT_HOST = "localhost"
+
+# Two presets, from a real dump. Every model captured so far lists two.
+DEVICEINFO_TWO_PRESETS = "AVC-X3700H-Deviceinfo-8080.xml"
+# A model whose Deviceinfo.xml does not describe the setting at all.
+DEVICEINFO_NO_PRESETS = "AVR-X4300H-Deviceinfo-8080.xml"
+# Synthetic - see the file's own comment.
+DEVICEINFO_FOUR_PRESETS = "Synthetic-Deviceinfo-speakerpreset-four.xml"
 
 
 def get_sample_content(filename: str) -> str:
     """Return sample content form file."""
     with open(f"tests/xml/{filename}", encoding="utf-8") as file:
         return file.read()
+
+
+def add_deviceinfo_response(
+    httpx_mock: HTTPXMock, filename: str, host: str = DEFAULT_HOST
+) -> None:
+    """Answer the Deviceinfo.xml fetch that setup makes."""
+    httpx_mock.add_response(
+        url=f"http://{host}{DEVICEINFO_URL}",
+        content=get_sample_content(filename),
+    )
 
 
 def speaker_preset_instance() -> DenonAVRSpeakerPreset:
@@ -38,12 +58,23 @@ def speaker_preset_instance() -> DenonAVRSpeakerPreset:
     return speaker_preset
 
 
+async def setup_speaker_preset(
+    httpx_mock: HTTPXMock, filename: str
+) -> DenonAVRSpeakerPreset:
+    """Return an instance set up against one model's Deviceinfo.xml."""
+    add_deviceinfo_response(httpx_mock, filename)
+    speaker_preset = speaker_preset_instance()
+    await speaker_preset.async_setup()
+    return speaker_preset
+
+
 class TestSpeakerPresetUpdate:
     """Test case for reading the speaker preset from AppCommand0300.xml."""
 
     @pytest.mark.asyncio
     async def test_the_preset_is_read(self, httpx_mock: HTTPXMock):
         """Check that the preset parameter is picked up as an int."""
+        add_deviceinfo_response(httpx_mock, DEVICEINFO_TWO_PRESETS)
         httpx_mock.add_response(
             content=get_sample_content("AVR-X1700H-AppCommand0300-speakerpreset.xml")
         )
@@ -57,13 +88,14 @@ class TestSpeakerPresetUpdate:
         """Check that the one param name the receiver answers to is used."""
         # The receiver recognises "preset" and nothing else; a wrong param
         # name takes the whole command out of the response
+        add_deviceinfo_response(httpx_mock, DEVICEINFO_TWO_PRESETS)
         httpx_mock.add_response(
             content=get_sample_content("AVR-X1700H-AppCommand0300-speakerpreset.xml")
         )
         speaker_preset = speaker_preset_instance()
         await speaker_preset.async_update()
 
-        body = httpx_mock.get_requests()[0].content.decode("utf-8")
+        body = httpx_mock.get_requests()[-1].content.decode("utf-8")
         assert "<name>GetSpeakerPreset</name>" in body
         assert '<param name="preset"' in body
 
@@ -72,6 +104,7 @@ class TestSpeakerPresetUpdate:
         self, httpx_mock: HTTPXMock
     ):
         """Check that an unanswered command leaves the preset unknown."""
+        add_deviceinfo_response(httpx_mock, DEVICEINFO_TWO_PRESETS)
         httpx_mock.add_response(
             content=get_sample_content(
                 "AVR-X1700H-AppCommand0300-speakerpreset-unsupported.xml"
@@ -89,10 +122,12 @@ class TestSpeakerPresetUpdate:
         with pytest.raises(AvrProcessingError):
             await speaker_preset.async_update()
 
-    def test_the_tag_is_registered_for_a_global_update(self):
+    @pytest.mark.asyncio
+    async def test_the_tag_is_registered_for_a_global_update(
+        self, httpx_mock: HTTPXMock
+    ):
         """Check that a global AppCommand0300.xml update carries the tag."""
-        speaker_preset = DenonAVRSpeakerPreset()
-        speaker_preset.setup()
+        speaker_preset = await setup_speaker_preset(httpx_mock, DEVICEINFO_TWO_PRESETS)
 
         # pylint: disable=protected-access
         tags = speaker_preset._device.api._appcommand0300_update_tags
@@ -184,7 +219,7 @@ class TestSpeakerPresetToggle:
         [
             pytest.param(1, 2, id="1-to-2"),
             pytest.param(2, 1, id="2-to-1"),
-            pytest.param(None, 2, id="unknown-to-2"),
+            pytest.param(None, 1, id="unknown-to-first"),
         ],
     )
     async def test_the_preset_that_was_read_is_toggled(
@@ -207,6 +242,7 @@ class TestSpeakerPresetOnDenonAVR:
     @pytest.mark.asyncio
     async def test_the_update_entry_point_reads_the_preset(self, httpx_mock: HTTPXMock):
         """Check that an HTTP only device knows its preset after an update."""
+        add_deviceinfo_response(httpx_mock, DEVICEINFO_TWO_PRESETS, host=FAKE_IP)
         httpx_mock.add_response(
             content=get_sample_content("AVR-X1700H-AppCommand0300-speakerpreset.xml")
         )
@@ -217,9 +253,12 @@ class TestSpeakerPresetOnDenonAVR:
         await denon.async_update_speaker_preset()
 
         assert denon.speaker_preset == 1
-        requests = httpx_mock.get_requests()
-        assert len(requests) == 1
-        assert requests[0].url.path == APPCOMMAND0300_URL
+        appcommand_requests = [
+            request
+            for request in httpx_mock.get_requests()
+            if request.url.path == APPCOMMAND0300_URL
+        ]
+        assert len(appcommand_requests) == 1
 
     @pytest.mark.asyncio
     async def test_the_setter_delegates_to_the_module(self, httpx_mock: HTTPXMock):
@@ -232,3 +271,89 @@ class TestSpeakerPresetOnDenonAVR:
         request = httpx_mock.get_requests()[0]
         assert request.url.path == DIRECT_URL
         assert str(request.url.query, "utf-8") == "SPPR%202"
+
+
+class TestSpeakerPresetList:
+    """Test case for the preset list Deviceinfo.xml declares."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "filename,expected",
+        [
+            pytest.param(DEVICEINFO_TWO_PRESETS, [1, 2], id="declared-two"),
+            pytest.param(DEVICEINFO_FOUR_PRESETS, [1, 2, 3, 4], id="declared-four"),
+            pytest.param(DEVICEINFO_NO_PRESETS, [1, 2], id="not-declared"),
+        ],
+    )
+    async def test_the_list_comes_from_the_receiver(
+        self, httpx_mock: HTTPXMock, filename: str, expected: list
+    ):
+        """Check that the receiver's own list bounds the setting."""
+        speaker_preset = await setup_speaker_preset(httpx_mock, filename)
+
+        assert speaker_preset.speaker_preset_list == expected
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_deviceinfo_keeps_the_fallback(self):
+        """Check that setup survives a receiver that has no Deviceinfo.xml."""
+        speaker_preset = speaker_preset_instance()
+        await speaker_preset.async_setup()
+
+        assert speaker_preset.speaker_preset_list == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_a_preset_the_receiver_lists_is_accepted(self, httpx_mock: HTTPXMock):
+        """Check that a preset beyond the old hardcoded bound is sent."""
+        speaker_preset = await setup_speaker_preset(httpx_mock, DEVICEINFO_FOUR_PRESETS)
+        httpx_mock.add_response()
+
+        await speaker_preset.async_speaker_preset(4)
+
+        request = httpx_mock.get_requests()[-1]
+        assert str(request.url.query, "utf-8") == "SPPR%204"
+
+    @pytest.mark.asyncio
+    async def test_a_preset_the_receiver_does_not_list_is_rejected(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that the bound follows the receiver rather than a constant."""
+        speaker_preset = await setup_speaker_preset(httpx_mock, DEVICEINFO_FOUR_PRESETS)
+
+        with pytest.raises(AvrCommandError):
+            await speaker_preset.async_speaker_preset(5)
+
+    @pytest.mark.asyncio
+    async def test_the_toggle_cycles_through_every_preset(self, httpx_mock: HTTPXMock):
+        """Check that the toggle can reach presets the old one could not."""
+        speaker_preset = await setup_speaker_preset(httpx_mock, DEVICEINFO_FOUR_PRESETS)
+        httpx_mock.add_response()
+        # pylint: disable=protected-access
+        speaker_preset._speaker_preset = 3
+
+        await speaker_preset.async_speaker_preset_toggle()
+
+        query = str(httpx_mock.get_requests()[-1].url.query, "utf-8")
+        assert query == "SPPR%204"
+
+    @pytest.mark.asyncio
+    async def test_the_toggle_wraps_at_the_end_of_the_list(self, httpx_mock: HTTPXMock):
+        """Check that the last preset cycles back to the first."""
+        speaker_preset = await setup_speaker_preset(httpx_mock, DEVICEINFO_FOUR_PRESETS)
+        httpx_mock.add_response()
+        # pylint: disable=protected-access
+        speaker_preset._speaker_preset = 4
+
+        await speaker_preset.async_speaker_preset_toggle()
+
+        query = str(httpx_mock.get_requests()[-1].url.query, "utf-8")
+        assert query == "SPPR%201"
+
+    @pytest.mark.asyncio
+    async def test_the_list_is_exposed_on_denonavr(self, httpx_mock: HTTPXMock):
+        """Check that the facade reports the same list."""
+        add_deviceinfo_response(httpx_mock, DEVICEINFO_FOUR_PRESETS, host=FAKE_IP)
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        await denon.speakerpreset.async_setup()
+
+        assert denon.speaker_preset_list == [1, 2, 3, 4]

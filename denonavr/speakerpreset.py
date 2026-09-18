@@ -7,18 +7,20 @@ This module implements the speaker preset setting of Denon AVR receivers.
 :license: MIT, see LICENSE for more details.
 """
 
+import asyncio
 import logging
 from collections.abc import Hashable
-from typing import Optional
+from typing import List, Optional
 
 import attr
 
 from .appcommand import AppCommands
-from .const import DENON_ATTR_SETATTR
+from .const import DENON_ATTR_SETATTR, SPEAKER_PRESETS_FALLBACK
 from .exceptions import (
     AvrCommandError,
     AvrIncompleteResponseError,
     AvrProcessingError,
+    AvrRequestError,
 )
 from .foundation import DenonAVRFoundation
 
@@ -32,20 +34,59 @@ class DenonAVRSpeakerPreset(DenonAVRFoundation):
     _speaker_preset: Optional[int] = attr.ib(
         converter=attr.converters.optional(int), default=None
     )
+    _speaker_preset_list: List[int] = attr.ib(
+        converter=list, default=SPEAKER_PRESETS_FALLBACK
+    )
+    _setup_lock: asyncio.Lock = attr.ib(default=attr.Factory(asyncio.Lock))
 
     # Update tags for attributes
     # AppCommand0300.xml interface
     appcommand0300_attrs = {AppCommands.GetSpeakerPreset: None}
 
-    def setup(self) -> None:
+    async def async_setup(self) -> None:
         """Ensure that the instance is initialized."""
-        # Add tags for a potential AppCommand0300.xml update
-        for tag in self.appcommand0300_attrs:
-            self._device.api.add_appcommand0300_update_tag(tag)
+        async with self._setup_lock:
+            _LOGGER.debug("Starting speaker preset setup")
 
-        self._device.telnet_api.register_callback("SP", self._speaker_preset_callback)
+            # Add tags for a potential AppCommand0300.xml update
+            for tag in self.appcommand0300_attrs:
+                self._device.api.add_appcommand0300_update_tag(tag)
 
-        self._is_setup = True
+            await self.async_update_speaker_preset_list()
+
+            self._device.telnet_api.register_callback(
+                "SP", self._speaker_preset_callback
+            )
+
+            self._is_setup = True
+            _LOGGER.debug("Finished speaker preset setup")
+
+    async def async_update_speaker_preset_list(self) -> None:
+        """Read the presets this receiver offers from Deviceinfo.xml.
+
+        Keeps the fallback when the document is unreachable or does not
+        describe the setting: plenty of models that accept SPPR do not
+        enumerate it, so an absent element means "not described", not
+        "not supported".
+        """
+        try:
+            xml = await self._device.api.async_get_xml(
+                self._device.urls.deviceinfo, cache_id=id(self._device)
+            )
+        except AvrRequestError as err:
+            _LOGGER.debug("Error getting the speaker preset list: %s", err)
+            return
+
+        presets = []
+        preset_path = ".//DeviceCapabilities/Setup/SpeakerPreset/List/Value"
+        for value in xml.findall(preset_path):
+            try:
+                presets.append(int(value.findtext("CmdNo")))
+            except (TypeError, ValueError):
+                _LOGGER.debug("Skipping a speaker preset without a usable CmdNo")
+
+        if presets:
+            self._speaker_preset_list = presets
 
     def _speaker_preset_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle a speaker preset change event."""
@@ -59,7 +100,7 @@ class DenonAVRSpeakerPreset(DenonAVRFoundation):
         _LOGGER.debug("Starting speaker preset update")
         # Ensure instance is setup before updating
         if not self._is_setup:
-            self.setup()
+            await self.async_setup()
 
         # Update state
         await self.async_update_speaker_preset(
@@ -102,9 +143,14 @@ class DenonAVRSpeakerPreset(DenonAVRFoundation):
 
         Over HTTP this is only known after async_update_speaker_preset().
 
-        Possible values are: "1", "2"
+        The values this receiver accepts are speaker_preset_list.
         """
         return self._speaker_preset
+
+    @property
+    def speaker_preset_list(self) -> List[int]:
+        """Return the preset numbers this receiver accepts."""
+        return list(self._speaker_preset_list)
 
     ##########
     # Setter #
@@ -113,10 +159,13 @@ class DenonAVRSpeakerPreset(DenonAVRFoundation):
         """
         Set speaker preset on receiver.
 
-        Valid preset values are 1-2.
+        Valid preset values are speaker_preset_list.
         """
-        if preset < 1 or preset > 2:
-            raise AvrCommandError("Speaker preset number must be 1 or 2")
+        if preset not in self._speaker_preset_list:
+            raise AvrCommandError(
+                "Speaker preset number must be one of "
+                f"{self._speaker_preset_list}, got {preset}"
+            )
 
         if self._device.telnet_available:
             await self._device.telnet_api.async_send_commands(
@@ -136,8 +185,13 @@ class DenonAVRSpeakerPreset(DenonAVRFoundation):
         The preset switched away from is the one that was last read, so this
         needs either Telnet or an update of the setting beforehand.
         """
-        speaker_preset = 1 if self._speaker_preset == 2 else 2
-        await self.async_speaker_preset(speaker_preset)
+        presets = self._speaker_preset_list
+        try:
+            position = presets.index(self._speaker_preset)
+        except ValueError:
+            # Nothing read yet, or a value this receiver does not list
+            position = -1
+        await self.async_speaker_preset(presets[(position + 1) % len(presets)])
 
 
 def speaker_preset_factory(instance: DenonAVRFoundation) -> DenonAVRSpeakerPreset:

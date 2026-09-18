@@ -693,6 +693,11 @@ COMMAND_SYSTEM_RESET = "/goform/formiPhoneAppDirect.xml?SYRST"
 COMMAND_NETWORK_RESTART = "/goform/formiPhoneAppDirect.xml?NSRBT"
 COMMAND_TRIGGER = "/goform/formiPhoneAppDirect.xml?TR{number}%20{mode}"
 COMMAND_SPEAKER_PRESET = "/goform/formiPhoneAppDirect.xml?SPPR%20{number}"
+
+# Used when Deviceinfo.xml does not describe the speaker preset. Many models
+# that accept SPPR do not enumerate it, and every model measured that does
+# enumerate it offers these two.
+SPEAKER_PRESETS_FALLBACK = (1, 2)
 COMMAND_BLUETOOTH_TRANSMITTER = "/goform/formiPhoneAppDirect.xml?BTTX%20{mode}"
 COMMAND_DIALOG_CONTROL = "/goform/formiPhoneAppDirect.xml?PSDIC%20{value}"
 COMMAND_SPEAKER_VIRTUALIZER = "/goform/formiPhoneAppDirect.xml?PSSPV%20{mode}"

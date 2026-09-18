@@ -200,7 +200,7 @@ class DenonAVR(DenonAVRFoundation):
             await self.tonecontrol.async_setup()
             self.vol.setup()
             self.audyssey.setup()
-            self.speakerpreset.setup()
+            await self.speakerpreset.async_setup()
             self.dirac.setup()
 
             for zone_name, zone_item in self._zones.items():
@@ -726,9 +726,14 @@ class DenonAVR(DenonAVRFoundation):
 
         Over HTTP this is only known after async_update_speaker_preset().
 
-        Possible values are: "1", "2"
+        The values this receiver accepts are speaker_preset_list.
         """
         return self.speakerpreset.speaker_preset
+
+    @property
+    def speaker_preset_list(self) -> List[int]:
+        """Return the preset numbers this receiver accepts."""
+        return self.speakerpreset.speaker_preset_list
 
     @property
     def bt_transmitter(self) -> Optional[bool]:
@@ -1103,7 +1108,7 @@ class DenonAVR(DenonAVRFoundation):
         """
         Set speaker preset on receiver.
 
-        Valid preset values are 1-2.
+        Valid preset values are speaker_preset_list.
         """
         await self.speakerpreset.async_speaker_preset(preset)
 
