@@ -304,7 +304,8 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         Return the state of the subwoofer.
 
-        Only available if using Telnet.
+        This is None whenever the receiver reports the setting as not
+        readable, which it does in some sound modes.
         """
         return self._subwoofer
 
@@ -325,7 +326,9 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         Return LFE level in dB.
 
-        Only available if using Telnet.
+        This is None whenever the receiver reports the setting as not
+        readable, which it does while the incoming stream carries no LFE
+        channel.
         """
         return self._lfe
 
@@ -528,11 +531,7 @@ class DenonAVRVolume(DenonAVRFoundation):
             )
 
     async def async_subwoofer_toggle(self) -> None:
-        """
-        Toggle Subwoofer on receiver.
-
-        Only available if using Telnet.
-        """
+        """Toggle Subwoofer on receiver."""
         if self._subwoofer:
             await self.async_subwoofer_off()
         else:

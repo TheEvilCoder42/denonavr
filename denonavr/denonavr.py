@@ -390,12 +390,23 @@ class DenonAVR(DenonAVRFoundation):
 
     @property
     def lfe(self) -> Optional[int]:
-        """Return LFE level in dB."""
+        """
+        Return LFE level in dB.
+
+        This is None whenever the receiver reports the setting as not
+        readable, which it does while the incoming stream carries no LFE
+        channel.
+        """
         return self.vol.lfe
 
     @property
     def subwoofer(self) -> Optional[bool]:
-        """Return the state of the subwoofer."""
+        """
+        Return the state of the subwoofer.
+
+        This is None whenever the receiver reports the setting as not
+        readable, which it does in some sound modes.
+        """
         return self.vol.subwoofer
 
     @property
