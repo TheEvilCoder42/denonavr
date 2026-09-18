@@ -649,6 +649,7 @@ class DenonAVRTelnetApi:
         index = commands.index("MNMEN?")
         if self.is_denon:
             commands.insert(index := index + 1, "MSQUICK ?")  # Quick Select
+            commands.insert(index + 1, "OPALS ?")  # Auto Lip Sync
         if not self.is_denon:
             commands.insert(index + 1, "MSSMART ?")  # SMART Select
             index = commands.index("TR?")
