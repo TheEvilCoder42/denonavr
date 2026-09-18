@@ -53,6 +53,26 @@ class TestAudioDelayUpdate:
         assert audio_delay.tv_delay == 0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "fixture,expected",
+        [
+            pytest.param("AVR-X1700H-AppCommand0300-audiodelay.xml", True, id="on"),
+            pytest.param(
+                "AVR-X1700H-AppCommand0300-audiodelay-lipsync-off.xml", False, id="off"
+            ),
+        ],
+    )
+    async def test_both_auto_lip_sync_states_are_read(
+        self, httpx_mock: HTTPXMock, fixture: str, expected: bool
+    ):
+        """Check that the off state is not confused with an absent value."""
+        httpx_mock.add_response(content=get_sample_content(fixture))
+        audio_delay = audio_delay_instance()
+        await audio_delay.async_update()
+
+        assert audio_delay.auto_lip_sync is expected
+
+    @pytest.mark.asyncio
     async def test_unavailable_tv_delay_reads_as_none(self, httpx_mock: HTTPXMock):
         """Check that an empty parameter does not break the update."""
         # The receiver empties tvdelay and sets its control attribute to 0
