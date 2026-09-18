@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SYNTHETIC. No capture of a receiver offering more than two speaker
+     presets exists; every model measured so far lists exactly two. This
+     file exists only to prove the Deviceinfo.xml parse is driven by the
+     list rather than by a hardcoded count. Replace it with a real dump
+     if one ever turns up. -->
+<Device_Info>
+  <CommApiVers>0301</CommApiVers>
+  <DeviceCapabilities>
+    <Setup>
+      <SpeakerPreset>
+        <Control>1</Control>
+        <DispName>Speaker Preset</DispName>
+        <FuncName>SpeakerPreset</FuncName>
+        <List>
+          <Value><DispName>Preset 1</DispName><CmdNo>1</CmdNo></Value>
+          <Value><DispName>Preset 2</DispName><CmdNo>2</CmdNo></Value>
+          <Value><DispName>Preset 3</DispName><CmdNo>3</CmdNo></Value>
+          <Value><DispName>Preset 4</DispName><CmdNo>4</CmdNo></Value>
+        </List>
+        <Commands>
+          <GetSpeakerPreset ver="1">1</GetSpeakerPreset>
+          <SetSpeakerPreset ver="1">1</SetSpeakerPreset>
+        </Commands>
+      </SpeakerPreset>
+    </Setup>
+  </DeviceCapabilities>
+</Device_Info>
