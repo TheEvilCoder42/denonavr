@@ -24,6 +24,7 @@ from .const import (
     AudioRestorers,
     AutoStandbys,
     BluetoothOutputModes,
+    Channels,
     DimmerModes,
     DynamicVolumeSettings,
     EcoModes,
@@ -397,6 +398,16 @@ class DenonAVR(DenonAVRFoundation):
         return self.vol.max_volume
 
     @property
+    def channel_volumes(self) -> Optional[Dict[Channels, float]]:
+        """
+        Return the channel levels of the device in dB.
+
+        A level pushed over telnet wins over the one read from AppCommand.xml,
+        which is only readable while audio is playing.
+        """
+        return self.vol.channel_volumes
+
+    @property
     def subwoofer_levels(self) -> Optional[Dict[Subwoofers, Union[bool, float]]]:
         """
         Return the level of each subwoofer the receiver reports, in dB.
@@ -419,6 +430,15 @@ class DenonAVR(DenonAVRFoundation):
         which is the answer for a model that does not know the command.
         """
         return self.vol.subwoofer_level_status
+
+    def channel_volume(self, channel: Channels) -> Optional[float]:
+        """
+        Return the volume of a channel in dB.
+
+        A channel the receiver does not currently report a level for reads as
+        None, the same as a receiver that has reported no level at all.
+        """
+        return self.vol.channel_volume(channel)
 
     def subwoofer_level(self, subwoofer: Subwoofers) -> Optional[float]:
         """
@@ -973,6 +993,27 @@ class DenonAVR(DenonAVRFoundation):
         zone 3 only take multiples of 10.0.
         """
         await self.vol.async_set_max_volume(max_volume)
+
+    async def async_channel_volume_up(self, channel: Channels) -> None:
+        """Increase Channel volume on receiver."""
+        await self.vol.async_channel_volume_up(channel)
+
+    async def async_channel_volume_down(self, channel: Channels) -> None:
+        """Decrease Channel volume on receiver."""
+        await self.vol.async_channel_volume_down(channel)
+
+    async def async_channel_volume(self, channel: Channels, volume: float) -> None:
+        """
+        Set Channel volume on receiver.
+
+        :param channel: Channel to set.
+        :param volume: Volume to set. Valid values are -12 to 12 with 0.5 steps.
+        """
+        await self.vol.async_channel_volume(channel, volume)
+
+    async def async_channel_volumes_reset(self) -> None:
+        """Reset all channel volumes on receiver."""
+        await self.vol.async_channel_volumes_reset()
 
     async def async_subwoofer_level_up(self, subwoofer: Subwoofers) -> None:
         """Increase the level of a subwoofer by one step."""
