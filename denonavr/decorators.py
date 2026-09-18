@@ -10,7 +10,7 @@ This module implements the REST API to Denon AVR receivers.
 import inspect
 import logging
 from functools import wraps
-from typing import Callable, TypeVar
+from typing import Any, Callable, List, TypeVar
 
 import httpx
 from asyncstdlib import lru_cache
@@ -67,6 +67,19 @@ def async_handle_receiver_exceptions(func: Callable[..., AnyT]) -> Callable[...,
     return wrapper
 
 
+_CACHED_FUNCS: List[Any] = []
+
+
+def clear_cached_results() -> None:
+    """Drop every result cache_result is holding.
+
+    Their cache key is usually id(), which CPython reuses once an object is
+    collected, so entries can outlive what they were keyed on.
+    """
+    for cached_func in _CACHED_FUNCS:
+        cached_func.cache_clear()
+
+
 def cache_result(func: Callable[..., AnyT]) -> Callable[..., AnyT]:
     """
     Decorate a function to cache its results with an lru_cache of maxsize 32.
@@ -80,6 +93,7 @@ def cache_result(func: Callable[..., AnyT]) -> Callable[..., AnyT]:
 
     lru_decorator = lru_cache(maxsize=32)
     cached_func = lru_decorator(func)
+    _CACHED_FUNCS.append(cached_func)
 
     @wraps(func)
     async def wrapper(*args, **kwargs):
