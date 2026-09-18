@@ -200,9 +200,6 @@ class DenonAVRDeviceInfo:
     )
     _room_sizes = get_args(RoomSizes)
     _triggers: Optional[Dict[int, str]] = attr.ib(default=None)
-    _speaker_preset: Optional[int] = attr.ib(
-        converter=attr.converters.optional(int), default=None
-    )
     _bt_transmitter: Optional[bool] = attr.ib(
         converter=attr.converters.optional(convert_on_off_bool), default=None
     )
@@ -340,11 +337,6 @@ class DenonAVRDeviceInfo:
         elif key == "TTRLPF":
             self._tactile_transducer_lpf = f"{value} Hz"
 
-    def _speaker_preset_callback(self, zone: str, event: str, parameter: str) -> None:
-        """Handle a speaker preset change event."""
-        if parameter[0:2] == "PR":
-            self._speaker_preset = parameter[3:]
-
     def _bt_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle a Bluetooth change event."""
         if parameter[0:2] != "TX":
@@ -461,7 +453,6 @@ class DenonAVRDeviceInfo:
             self.telnet_api.register_callback("SLP", self._auto_sleep_callback)
             self.telnet_api.register_callback("PS", self._room_size_callback)
             self.telnet_api.register_callback("TR", self._trigger_callback)
-            self.telnet_api.register_callback("SP", self._speaker_preset_callback)
             self.telnet_api.register_callback("BT", self._bt_callback)
             self.telnet_api.register_callback("PS", self._delay_time_callback)
             self.telnet_api.register_callback("PS", self._audio_restorer_callback)
@@ -935,17 +926,6 @@ class DenonAVRDeviceInfo:
         Only available if using Telnet.
         """
         return self._triggers
-
-    @property
-    def speaker_preset(self) -> Optional[int]:
-        """
-        Return the speaker preset for the device.
-
-        Only available if using Telnet.
-
-        Possible values are: "1", "2"
-        """
-        return self._speaker_preset
 
     @property
     def bt_transmitter(self) -> Optional[bool]:
@@ -1510,33 +1490,6 @@ class DenonAVRDeviceInfo:
             )
         else:
             await self.api.async_get_command(self.urls.command_network_restart)
-
-    async def async_speaker_preset(self, preset: int) -> None:
-        """
-        Set speaker preset on receiver.
-
-        Valid preset values are 1-2.
-        """
-        if preset < 1 or preset > 2:
-            raise AvrCommandError("Speaker preset number must be 1 or 2")
-
-        if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_speaker_preset.format(number=preset)
-            )
-        else:
-            await self.api.async_get_command(
-                self.urls.command_speaker_preset.format(number=preset)
-            )
-
-    async def async_speaker_preset_toggle(self) -> None:
-        """
-        Toggle speaker preset on receiver.
-
-        Only available if using Telnet.
-        """
-        speaker_preset = 1 if self._speaker_preset == 2 else 2
-        await self.async_speaker_preset(speaker_preset)
 
     async def async_bt_transmitter_on(
         self,
