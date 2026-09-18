@@ -724,7 +724,7 @@ class DenonAVR(DenonAVRFoundation):
         """
         Return the speaker preset for the device.
 
-        Only available if using Telnet.
+        Over HTTP this is only known after async_update_speaker_preset().
 
         Possible values are: "1", "2"
         """
@@ -1111,7 +1111,8 @@ class DenonAVR(DenonAVRFoundation):
         """
         Toggle speaker preset on receiver.
 
-        Only available if using Telnet.
+        The preset switched away from is the one that was last read, so this
+        needs either Telnet or an update of the setting beforehand.
         """
         await self.speakerpreset.async_speaker_preset_toggle()
 
