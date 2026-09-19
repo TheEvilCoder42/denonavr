@@ -40,6 +40,15 @@ def get_sample_content(filename: str) -> str:
         return file.read()
 
 
+def appcommand0300_requests(httpx_mock: HTTPXMock) -> list:
+    """Return the AppCommand0300.xml requests that were actually sent."""
+    return [
+        request
+        for request in httpx_mock.get_requests()
+        if request.url.path == APPCOMMAND0300_URL
+    ]
+
+
 def volume_instance() -> DenonAVRVolume:
     """Return a volume instance that is ready to be updated."""
     volume = DenonAVRVolume()
@@ -311,7 +320,6 @@ class TestFacadeDelegation:
             pytest.param("async_subwoofer_on", (), id="subwoofer-on"),
             pytest.param("async_subwoofer_off", (), id="subwoofer-off"),
             pytest.param("async_subwoofer_toggle", (), id="subwoofer-toggle"),
-            pytest.param("async_update_surround_parameters", (), id="update"),
         ],
     )
     async def test_the_setters_are_forwarded(self, method: str, args: tuple):
@@ -320,3 +328,51 @@ class TestFacadeDelegation:
         setattr(denon.vol, method, mock.AsyncMock())
         await getattr(denon, method)(*args)
         getattr(denon.vol, method).assert_awaited_once_with(*args)
+
+
+class TestSurroundParameterRequestSharing:
+    """Test case for reading the parameters out of another update's request."""
+
+    @pytest.mark.asyncio
+    async def test_it_rides_a_request_another_update_made(self, httpx_mock: HTTPXMock):
+        """Check that sharing a cache id costs no second request.
+
+        AppCommand0300.xml answers every registered tag at once, so the
+        parameters are already in the answer a refresh has in hand.
+        """
+        volume = volume_instance()
+        volume.setup()
+        httpx_mock.add_response(content=get_sample_content(BITSTREAM))
+        cache_id = "one refresh"
+
+        # What audyssey and the audio delay do to share their request
+        # pylint: disable=protected-access
+        await volume._device.api.async_get_global_appcommand(
+            appcommand0300=True, cache_id=cache_id
+        )
+        await volume.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
+
+        assert len(appcommand0300_requests(httpx_mock)) == 1
+        assert volume.lfe == -5
+
+    @pytest.mark.asyncio
+    async def test_the_facade_passes_the_cache_id_on(self, httpx_mock: HTTPXMock):
+        """Check that a caller can batch the read through DenonAVR."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.vol.setup()
+        httpx_mock.add_response(content=get_sample_content(BITSTREAM))
+        cache_id = "one refresh"
+
+        await denon._device.api.async_get_global_appcommand(
+            appcommand0300=True, cache_id=cache_id
+        )
+        await denon.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
+
+        assert len(appcommand0300_requests(httpx_mock)) == 1
+        assert denon.lfe == -5
