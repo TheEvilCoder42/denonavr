@@ -10,6 +10,7 @@ This module implements the interface to Denon AVR receivers.
 import asyncio
 import logging
 import time
+from collections.abc import Hashable
 from typing import Callable, Dict, List, Literal, Optional, Union
 
 import attr
@@ -274,9 +275,20 @@ class DenonAVR(DenonAVRFoundation):
         """Get Audyssey settings."""
         await self.audyssey.async_update()
 
-    async def async_update_speaker_preset(self):
-        """Get the speaker preset."""
-        await self.speakerpreset.async_update()
+    async def async_update_speaker_preset(
+        self, global_update: bool = False, cache_id: Optional[Hashable] = None
+    ) -> None:
+        """
+        Get the speaker preset.
+
+        The setting is served by AppCommand0300.xml, which answers every
+        registered tag at once. Passing global_update with the cache id of
+        another AppCommand0300 update in the same refresh reads the preset out
+        of that request instead of making a second one for it.
+        """
+        await self.speakerpreset.async_update(
+            global_update=global_update, cache_id=cache_id
+        )
 
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
