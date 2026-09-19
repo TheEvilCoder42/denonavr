@@ -17,7 +17,7 @@ from pytest_httpx import HTTPXMock
 
 import denonavr
 from denonavr.appcommand import AppCommands
-from denonavr.const import MAIN_ZONE, ZONE2
+from denonavr.const import MAIN_ZONE, SPEAKER_PRESETS_FALLBACK, ZONE2
 from denonavr.exceptions import AvrCommandError, AvrProcessingError
 from denonavr.speakerpreset import DenonAVRSpeakerPreset
 
@@ -475,6 +475,45 @@ class TestSpeakerPresetList:
         add_deviceinfo_response(httpx_mock, DEVICEINFO_FOUR_PRESETS, host=FAKE_IP)
         denon = denonavr.DenonAVR(FAKE_IP)
         # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
         await denon.speakerpreset.async_setup()
 
         assert denon.speaker_preset_list == [1, 2, 3, 4]
+
+    @pytest.mark.asyncio
+    async def test_a_pre_2016_receiver_is_not_asked(self, httpx_mock: HTTPXMock):
+        """Check that a receiver without the endpoint is left alone.
+
+        Only AVR-X receivers serve AppCommand0300.xml, so only they can have
+        the setting; on the others Deviceinfo.xml is a slow 404.
+        """
+        speaker_preset = DenonAVRSpeakerPreset()
+        # pylint: disable=protected-access
+        speaker_preset._device.use_avr_2016_update = False
+
+        await speaker_preset.async_setup()
+
+        assert httpx_mock.get_requests() == []
+        assert speaker_preset.speaker_preset_list == list(SPEAKER_PRESETS_FALLBACK)
+
+    @pytest.mark.asyncio
+    async def test_it_shares_the_fetch_the_source_list_makes(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that reading the list costs no Deviceinfo.xml GET of its own.
+
+        input.async_get_sources_deviceinfo() reads the same static document
+        under the same cache id, so whichever runs first serves the other.
+        """
+        speaker_preset = await setup_speaker_preset(httpx_mock, DEVICEINFO_TWO_PRESETS)
+
+        # pylint: disable=protected-access
+        device = speaker_preset._device
+        await device.api.async_get_xml(device.urls.deviceinfo, cache_id=id(device))
+
+        deviceinfo_gets = [
+            request
+            for request in httpx_mock.get_requests()
+            if request.url.path == DEVICEINFO_URL
+        ]
+        assert len(deviceinfo_gets) == 1
