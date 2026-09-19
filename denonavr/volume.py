@@ -244,11 +244,11 @@ class DenonAVRVolume(DenonAVRFoundation):
                 self.status_xml_attrs, urls, cache_id=cache_id
             )
 
-    async def async_update_lfe(
+    async def async_update_surround_parameters(
         self, global_update: bool = False, cache_id: Optional[Hashable] = None
     ) -> None:
         """
-        Update LFE level and subwoofer output state of device.
+        Update the LFE level and the subwoofer output state of the device.
 
         This is deliberately not called from async_update: it is an
         AppCommand0300.xml request and async_update_volume runs for every zone
@@ -271,7 +271,7 @@ class DenonAVRVolume(DenonAVRFoundation):
             except (AvrProcessingError, AvrIncompleteResponseError) as err:
                 # Don't raise an error here, because not all devices support
                 # it. One that does not know GetSurroundParameter answers it short.
-                _LOGGER.debug("Updating LFE failed: %s", err)
+                _LOGGER.debug("Updating the surround parameters failed: %s", err)
 
     ##############
     # Properties #
