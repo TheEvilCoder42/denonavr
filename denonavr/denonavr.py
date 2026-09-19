@@ -10,6 +10,7 @@ This module implements the interface to Denon AVR receivers.
 import asyncio
 import logging
 import time
+from collections.abc import Hashable
 from typing import Callable, Dict, List, Literal, Optional, Union
 
 import attr
@@ -277,21 +278,24 @@ class DenonAVR(DenonAVRFoundation):
         """Get Tonecontrol settings."""
         await self.tonecontrol.async_update()
 
-    async def async_update_settings(self) -> None:
+    async def async_update_settings(self, cache_id: Optional[Hashable] = None) -> None:
         """
         Get the settings that are served by AppCommand0300.xml.
 
-        Audyssey and the audio delay share one request: both go through the
-        global AppCommand0300.xml update under the same cache id, so the
-        second one is answered from the cache of the first.
+        Audyssey and the audio delay share one request, under the same cache
+        id. The body carries no zone either, so a caller refreshing several
+        zones can pass one cache id to all of them and have the first zone's
+        request answer the rest. Pass a value that is new for each refresh,
+        or the answer is the settings as they were then.
         """
-        cache_id = time.time()
+        if cache_id is None:
+            cache_id = time.time()
         await self.audyssey.async_update(global_update=True, cache_id=cache_id)
         await self.audiodelay.async_update(global_update=True, cache_id=cache_id)
 
-    async def async_update_audyssey(self):
+    async def async_update_audyssey(self, cache_id: Optional[Hashable] = None) -> None:
         """Get Audyssey settings. Alias of async_update_settings()."""
-        await self.async_update_settings()
+        await self.async_update_settings(cache_id=cache_id)
 
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
