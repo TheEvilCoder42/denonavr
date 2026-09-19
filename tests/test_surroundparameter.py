@@ -63,7 +63,7 @@ class TestLfeLevelUpdate:
         # +5, which is inside the plausible range and would go unnoticed
         httpx_mock.add_response(content=get_sample_content(BITSTREAM))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         assert volume.lfe == -5
 
@@ -101,7 +101,7 @@ class TestSubwooferOutputUpdate:
         """Check that the 1/0 the receiver sends becomes a bool."""
         httpx_mock.add_response(content=get_sample_content(content))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         assert volume.subwoofer is expected
 
@@ -131,7 +131,7 @@ class TestUnreadableParameters:
         # rendering it unknown, because the user's next action is to press it
         httpx_mock.add_response(content=get_sample_content(NOT_APPLICABLE))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         assert volume.lfe is None
         assert volume.subwoofer is None
@@ -146,7 +146,7 @@ class TestUnreadableParameters:
         # same moment: the subwoofer is on and the HTTP read declines to say so
         httpx_mock.add_response(content=get_sample_content(BITSTREAM))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         assert volume.lfe == -5
         assert volume.subwoofer is None
@@ -170,7 +170,7 @@ class TestAdjustableFlags:
         """Check that each flag is what the receiver's control attribute says."""
         httpx_mock.add_response(content=get_sample_content(content))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         assert volume.lfe_adjustable is lfe
         assert volume.subwoofer_adjustable is subwoofer
@@ -201,7 +201,7 @@ class TestAdjustableFlags:
         """Check that an unanswered command reports neither flag."""
         httpx_mock.add_response(content=get_sample_content(UNSUPPORTED))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         assert volume.lfe_adjustable is None
         assert volume.subwoofer_adjustable is None
@@ -230,7 +230,7 @@ class TestAdjustableFlags:
         httpx_mock.add_response(content=get_sample_content(NOT_APPLICABLE))
         volume = volume_instance()
         volume.setup()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         # pylint: disable=protected-access
         volume._device.telnet_api._process_event(message)
@@ -249,7 +249,7 @@ class TestSurroundParameterRequest:
         # a wrong param name takes the whole command out of the response
         httpx_mock.add_response(content=get_sample_content(BITSTREAM))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         request = httpx_mock.get_requests()[0]
         body = request.content.decode("utf-8")
@@ -265,7 +265,7 @@ class TestSurroundParameterRequest:
         """Check that an unanswered command leaves both values unknown."""
         httpx_mock.add_response(content=get_sample_content(UNSUPPORTED))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         assert volume.lfe is None
         assert volume.subwoofer is None
@@ -275,7 +275,7 @@ class TestSurroundParameterRequest:
         """Check that an unknown update method is reported."""
         volume = DenonAVRVolume()
         with pytest.raises(AvrProcessingError):
-            await volume.async_update_lfe()
+            await volume.async_update_surround_parameters()
 
     def test_the_tag_is_registered_for_a_global_update(self):
         """Check that a global AppCommand0300.xml update carries the tag."""
@@ -325,7 +325,7 @@ class TestSubwooferToggle:
         # the toggle sends ON every time
         httpx_mock.add_response(content=get_sample_content(STEREO))
         volume = volume_instance()
-        await volume.async_update_lfe()
+        await volume.async_update_surround_parameters()
 
         httpx_mock.add_response()
         await volume.async_subwoofer_toggle()
@@ -378,7 +378,7 @@ class TestFacadeDelegation:
             pytest.param("async_subwoofer_on", (), id="subwoofer-on"),
             pytest.param("async_subwoofer_off", (), id="subwoofer-off"),
             pytest.param("async_subwoofer_toggle", (), id="subwoofer-toggle"),
-            pytest.param("async_update_lfe", (), id="update"),
+            pytest.param("async_update_surround_parameters", (), id="update"),
         ],
     )
     async def test_the_setters_are_forwarded(self, method: str, args: tuple):

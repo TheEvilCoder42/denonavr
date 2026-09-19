@@ -297,9 +297,9 @@ class DenonAVR(DenonAVRFoundation):
         """Get Audyssey settings. Alias of async_update_settings()."""
         await self.async_update_settings(cache_id=cache_id)
 
-    async def async_update_lfe(self) -> None:
+    async def async_update_surround_parameters(self) -> None:
         """Get the LFE level and the subwoofer output state."""
-        await self.vol.async_update_lfe()
+        await self.vol.async_update_surround_parameters()
 
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
