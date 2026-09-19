@@ -7,9 +7,11 @@ This module covers tests of the speaker preset setting.
 :license: MIT, see LICENSE for more details.
 """
 
+import re
 from typing import Optional
 from unittest import mock
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -48,6 +50,15 @@ def add_deviceinfo_response(
         url=f"http://{host}{DEVICEINFO_URL}",
         content=get_sample_content(filename),
     )
+
+
+def appcommand0300_requests(httpx_mock: HTTPXMock) -> list:
+    """Return the AppCommand0300.xml requests that were actually sent."""
+    return [
+        request
+        for request in httpx_mock.get_requests()
+        if request.url.path == APPCOMMAND0300_URL
+    ]
 
 
 def speaker_preset_instance() -> DenonAVRSpeakerPreset:
@@ -133,6 +144,52 @@ class TestSpeakerPresetUpdate:
         tags = speaker_preset._device.api._appcommand0300_update_tags
         assert [tag.name for tag in tags] == ["GetSpeakerPreset"]
         assert AppCommands.GetSpeakerPreset.param_list == tags[0].param_list
+
+    @pytest.mark.asyncio
+    async def test_the_preset_rides_a_request_another_update_made(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that sharing a cache id costs no second request.
+
+        AppCommand0300.xml answers every registered tag at once, so the
+        preset is already in the answer a refresh has in hand.
+        """
+        speaker_preset = await setup_speaker_preset(httpx_mock, DEVICEINFO_TWO_PRESETS)
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-speakerpreset.xml")
+        )
+        cache_id = "one refresh"
+
+        # What audyssey and the audio delay do to share their request
+        # pylint: disable=protected-access
+        await speaker_preset._device.api.async_get_global_appcommand(
+            appcommand0300=True, cache_id=cache_id
+        )
+        await speaker_preset.async_update(global_update=True, cache_id=cache_id)
+
+        assert len(appcommand0300_requests(httpx_mock)) == 1
+        assert speaker_preset.speaker_preset == 1
+
+    @pytest.mark.asyncio
+    async def test_the_facade_passes_the_cache_id_on(self, httpx_mock: HTTPXMock):
+        """Check that a caller can batch the preset read through DenonAVR."""
+        add_deviceinfo_response(httpx_mock, DEVICEINFO_TWO_PRESETS, host=FAKE_IP)
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-speakerpreset.xml")
+        )
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        await denon.speakerpreset.async_setup()
+        cache_id = "one refresh"
+
+        await denon._device.api.async_get_global_appcommand(
+            appcommand0300=True, cache_id=cache_id
+        )
+        await denon.async_update_speaker_preset(global_update=True, cache_id=cache_id)
+
+        assert len(appcommand0300_requests(httpx_mock)) == 1
+        assert denon.speaker_preset == 1
 
 
 class TestSpeakerPresetCallback:
@@ -271,6 +328,70 @@ class TestSpeakerPresetOnDenonAVR:
         request = httpx_mock.get_requests()[0]
         assert request.url.path == DIRECT_URL
         assert str(request.url.query, "utf-8") == "SPPR%202"
+
+
+class TestSpeakerPresetInTheSettingsRefresh:
+    """Test case for the preset read of DenonAVR.async_update_settings()."""
+
+    @staticmethod
+    async def settings_receiver(httpx_mock: HTTPXMock) -> denonavr.DenonAVR:
+        """Return a receiver whose AppCommand0300 settings are set up."""
+        add_deviceinfo_response(httpx_mock, DEVICEINFO_TWO_PRESETS, host=FAKE_IP)
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        await denon.speakerpreset.async_setup()
+        denon.audyssey.setup()
+        denon.audiodelay.setup()
+        return denon
+
+    @pytest.mark.asyncio
+    async def test_the_preset_rides_the_settings_request(self, httpx_mock: HTTPXMock):
+        """Check that the refresh reads the preset from its single request."""
+        denon = await self.settings_receiver(httpx_mock)
+        preset = get_sample_content("AVR-X1700H-AppCommand0300-speakerpreset.xml")
+        settings = get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        # The answer lists the tags in the order DenonAVR.async_setup()
+        # registers them, which settings_receiver() follows
+        httpx_mock.add_response(
+            url=f"http://{FAKE_IP}{APPCOMMAND0300_URL}",
+            content=preset[: preset.index("</rx>")]
+            + settings[settings.index("<cmd>") :],
+        )
+
+        await denon.async_update_settings()
+
+        assert len(appcommand0300_requests(httpx_mock)) == 1
+        assert denon.speaker_preset == 1
+        assert denon.audio_delay == 140
+
+    @pytest.mark.asyncio
+    async def test_a_device_without_the_command_refreshes_the_rest(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that a failed preset read does not fail the refresh."""
+        denon = await self.settings_receiver(httpx_mock)
+        settings = get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        known = re.findall(r"<cmd>.*?</cmd>", settings, re.DOTALL)
+
+        # A device that does not know a tag leaves its element out, of the
+        # shared request and of each module's retry alike
+        def answer(request: httpx.Request) -> httpx.Response:
+            asked = request.content.decode("utf-8")
+            cmds = [
+                cmd for cmd in known if re.search(r"<name>\w+</name>", cmd)[0] in asked
+            ]
+            return httpx.Response(200, text="<rx>" + "".join(cmds) + "</rx>")
+
+        httpx_mock.add_callback(
+            answer, url=f"http://{FAKE_IP}{APPCOMMAND0300_URL}", is_reusable=True
+        )
+
+        await denon.async_update_settings()
+
+        assert denon.speaker_preset is None
+        assert denon.audyssey.multi_eq == "Reference"
+        assert denon.audio_delay == 140
 
 
 class TestSpeakerPresetList:
