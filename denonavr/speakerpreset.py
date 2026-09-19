@@ -69,12 +69,16 @@ class DenonAVRSpeakerPreset(DenonAVRFoundation):
         enumerate it, so an absent element means "not described", not
         "not supported".
         """
+        # Only AVR-X receivers serve AppCommand0300.xml, and only they are
+        # asked for the preset. On the others Deviceinfo.xml is a slow 404.
+        if not self._device.use_avr_2016_update:
+            return
+
         try:
-            # Keyed on the api, which every zone shares by reference, not on
-            # the per-zone device: the document and the setting are both
-            # receiver-wide, so one fetch serves every zone.
+            # Keyed the way the input source read keys it, so the two share
+            # one fetch of a static document rather than making two.
             xml = await self._device.api.async_get_xml(
-                self._device.urls.deviceinfo, cache_id=id(self._device.api)
+                self._device.urls.deviceinfo, cache_id=id(self._device)
             )
         except AvrRequestError as err:
             _LOGGER.debug("Error getting the speaker preset list: %s", err)
