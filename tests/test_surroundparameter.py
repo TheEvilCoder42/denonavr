@@ -7,9 +7,11 @@ This module covers tests of the GetSurroundParameter reads.
 :license: MIT, see LICENSE for more details.
 """
 
+import re
 from typing import Optional
 from unittest import mock
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -42,6 +44,26 @@ def get_sample_content(filename: str) -> str:
     """Return sample content form file."""
     with open(f"tests/xml/{filename}", encoding="utf-8") as file:
         return file.read()
+
+
+def appcommand0300_requests(httpx_mock: HTTPXMock) -> list:
+    """Return the AppCommand0300.xml requests that were actually sent."""
+    return [
+        request
+        for request in httpx_mock.get_requests()
+        if request.url.path == APPCOMMAND0300_URL
+    ]
+
+
+def settings_receiver() -> denonavr.DenonAVR:
+    """Return a receiver whose AppCommand0300 settings are ready to refresh."""
+    denon = denonavr.DenonAVR(FAKE_IP)
+    # pylint: disable=protected-access
+    denon._device.use_avr_2016_update = True
+    denon.audyssey.setup()
+    denon.audiodelay.setup()
+    denon.vol.setup()
+    return denon
 
 
 def volume_instance() -> DenonAVRVolume:
@@ -378,7 +400,6 @@ class TestFacadeDelegation:
             pytest.param("async_subwoofer_on", (), id="subwoofer-on"),
             pytest.param("async_subwoofer_off", (), id="subwoofer-off"),
             pytest.param("async_subwoofer_toggle", (), id="subwoofer-toggle"),
-            pytest.param("async_update_surround_parameters", (), id="update"),
         ],
     )
     async def test_the_setters_are_forwarded(self, method: str, args: tuple):
@@ -387,3 +408,97 @@ class TestFacadeDelegation:
         setattr(denon.vol, method, mock.AsyncMock())
         await getattr(denon, method)(*args)
         getattr(denon.vol, method).assert_awaited_once_with(*args)
+
+
+class TestSurroundParameterRequestSharing:
+    """Test case for reading the parameters out of another update's request."""
+
+    @pytest.mark.asyncio
+    async def test_it_rides_a_request_another_update_made(self, httpx_mock: HTTPXMock):
+        """Check that sharing a cache id costs no second request.
+
+        AppCommand0300.xml answers every registered tag at once, so the
+        parameters are already in the answer a refresh has in hand.
+        """
+        volume = volume_instance()
+        volume.setup()
+        httpx_mock.add_response(content=get_sample_content(BITSTREAM))
+        cache_id = "one refresh"
+
+        # What audyssey and the audio delay do to share their request
+        # pylint: disable=protected-access
+        await volume._device.api.async_get_global_appcommand(
+            appcommand0300=True, cache_id=cache_id
+        )
+        await volume.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
+
+        assert len(appcommand0300_requests(httpx_mock)) == 1
+        assert volume.lfe == -5
+
+    @pytest.mark.asyncio
+    async def test_the_facade_passes_the_cache_id_on(self, httpx_mock: HTTPXMock):
+        """Check that a caller can batch the read through DenonAVR."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device.use_avr_2016_update = True
+        denon.vol.setup()
+        httpx_mock.add_response(content=get_sample_content(BITSTREAM))
+        cache_id = "one refresh"
+
+        await denon._device.api.async_get_global_appcommand(
+            appcommand0300=True, cache_id=cache_id
+        )
+        await denon.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
+
+        assert len(appcommand0300_requests(httpx_mock)) == 1
+        assert denon.lfe == -5
+
+    @pytest.mark.asyncio
+    async def test_the_settings_refresh_reads_them(self, httpx_mock: HTTPXMock):
+        """Check that the settings refresh reads them on its one request."""
+        settings = get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        surround = get_sample_content(BITSTREAM)
+        surround = surround[surround.index("<cmd>") : surround.index("</rx>")]
+        httpx_mock.add_response(content=settings.replace("</rx>", surround + "</rx>"))
+        denon = settings_receiver()
+
+        await denon.async_update_settings()
+
+        requests = appcommand0300_requests(httpx_mock)
+        assert len(requests) == 1
+        assert b"<name>GetSurroundParameter</name>" in requests[0].content
+        assert denon.lfe == -5
+        assert denon.lfe_adjustable is True
+        assert denon.subwoofer_adjustable is False
+        assert denon.audio_delay == 140
+        assert denon.audyssey.multi_eq == "Reference"
+
+    @pytest.mark.asyncio
+    async def test_a_device_without_the_command_refreshes_the_rest(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that a failed surround read does not fail the refresh."""
+        settings = get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        known = re.findall(r"<cmd>.*?</cmd>", settings, re.DOTALL)
+
+        # A device that does not know a tag leaves its element out, of the
+        # shared request and of each module's retry alike
+        def answer(request: httpx.Request) -> httpx.Response:
+            asked = request.content.decode("utf-8")
+            cmds = [
+                cmd for cmd in known if re.search(r"<name>\w+</name>", cmd)[0] in asked
+            ]
+            return httpx.Response(200, text="<rx>" + "".join(cmds) + "</rx>")
+
+        httpx_mock.add_callback(answer, is_reusable=True)
+        denon = settings_receiver()
+
+        await denon.async_update_settings()
+
+        assert denon.lfe is None
+        assert denon.audio_delay == 140
+        assert denon.audyssey.multi_eq == "Reference"
