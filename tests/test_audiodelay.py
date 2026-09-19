@@ -7,6 +7,7 @@ This module covers tests of the audio delay settings.
 :license: MIT, see LICENSE for more details.
 """
 
+import time
 from unittest import mock
 
 import httpx
@@ -26,6 +27,17 @@ def get_sample_content(filename):
     """Return sample content form file."""
     with open(f"tests/xml/{filename}", encoding="utf-8") as file:
         return file.read()
+
+
+def settings_receiver(**kwargs) -> denonavr.DenonAVR:
+    """Return a receiver whose AppCommand0300 settings are ready to refresh."""
+    denon = denonavr.DenonAVR("10.0.0.0", **kwargs)
+    for zone_receiver in denon.zones.values():
+        # pylint: disable=protected-access
+        zone_receiver._device.use_avr_2016_update = True
+        zone_receiver.audyssey.setup()
+        zone_receiver.audiodelay.setup()
+    return denon
 
 
 def audio_delay_instance() -> DenonAVRAudioDelay:
@@ -168,11 +180,7 @@ class TestSettingsUpdate:
         httpx_mock.add_response(
             content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
         )
-        denon = denonavr.DenonAVR("10.0.0.0")
-        # pylint: disable=protected-access
-        denon._device.use_avr_2016_update = True
-        denon.audyssey.setup()
-        denon.audiodelay.setup()
+        denon = settings_receiver()
 
         await denon.async_update_settings()
 
@@ -191,12 +199,7 @@ class TestSettingsUpdate:
         httpx_mock.add_response(
             content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
         )
-        denon = denonavr.DenonAVR("10.0.0.0", add_zones={ZONE2: ZONE2})
-        zone2 = denon.zones[ZONE2]
-        # pylint: disable=protected-access
-        zone2._device.use_avr_2016_update = True
-        zone2.audyssey.setup()
-        zone2.audiodelay.setup()
+        zone2 = settings_receiver(add_zones={ZONE2: ZONE2}).zones[ZONE2]
 
         await zone2.async_update_settings()
 
@@ -217,11 +220,7 @@ class TestSettingsUpdate:
             return httpx.Response(200, text="<rx></rx>")
 
         httpx_mock.add_callback(answer, is_reusable=True)
-        denon = denonavr.DenonAVR("10.0.0.0")
-        # pylint: disable=protected-access
-        denon._device.use_avr_2016_update = True
-        denon.audyssey.setup()
-        denon.audiodelay.setup()
+        denon = settings_receiver()
 
         await denon.async_update_settings()
 
@@ -243,11 +242,7 @@ class TestSettingsUpdate:
             return httpx.Response(200, text="<rx></rx>")
 
         httpx_mock.add_callback(answer, is_reusable=True)
-        denon = denonavr.DenonAVR("10.0.0.0")
-        # pylint: disable=protected-access
-        denon._device.use_avr_2016_update = True
-        denon.audyssey.setup()
-        denon.audiodelay.setup()
+        denon = settings_receiver()
 
         await denon.async_update_settings()
 
@@ -260,16 +255,49 @@ class TestSettingsUpdate:
         httpx_mock.add_response(
             content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
         )
-        denon = denonavr.DenonAVR("10.0.0.0")
-        # pylint: disable=protected-access
-        denon._device.use_avr_2016_update = True
-        denon.audyssey.setup()
-        denon.audiodelay.setup()
+        denon = settings_receiver()
 
         await denon.async_update_audyssey()
 
         assert denon.audyssey.multi_eq == "Reference"
         assert denon.audio_delay == 140
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_one_cache_id_serves_every_zone(self, httpx_mock: HTTPXMock):
+        """Check that refreshing two zones costs a single request.
+
+        The body carries no zone, so the second zone would otherwise post
+        the same bytes and get the same document back.
+        """
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        )
+        denon = settings_receiver(add_zones={ZONE2: ZONE2})
+
+        cache_id = time.time()
+        for zone_receiver in denon.zones.values():
+            await zone_receiver.async_update_settings(cache_id=cache_id)
+
+        requests = httpx_mock.get_requests()
+        assert len(requests) == 1
+        assert requests[0].url.path == APPCOMMAND0300_URL
+        assert denon.audio_delay == 140
+        assert denon.zones[ZONE2].auto_lip_sync is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_each_refresh_asks_again(self, httpx_mock: HTTPXMock):
+        """Check that a refresh without a cache id is not served a stale answer."""
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand0300-settings.xml")
+        )
+        denon = settings_receiver()
+
+        await denon.async_update_settings()
+        await denon.async_update_settings()
+
+        assert len(httpx_mock.get_requests()) == 2
 
 
 class TestPerSourceInvalidation:
