@@ -58,6 +58,21 @@ TESTING_RECEIVERS = {
     "AVR-3313": (ZONE2_ZONE3, denonavr.const.AVR_X),
 }
 
+# Volume limits in the AppCommand samples, as <limit> reports them. A receiver
+# with no limit configured sends the literal string OFF, and max_volume reports
+# that as the hardware ceiling rather than as a limit.
+NO_LIMIT = 18.0
+MAX_VOLUMES = {
+    "NR1609": {"Main": NO_LIMIT, "Zone2": -20.0},
+    "AVC-8500H": {"Main": NO_LIMIT, "Zone2": -10.0, "Zone3": -10.0},
+    "AVC-A10H": {"Main": -20.0, "Zone2": -10.0, "Zone3": -10.0},
+    "AVR-X4300H": {"Main": NO_LIMIT, "Zone2": -10.0, "Zone3": -10.0},
+    # SR6012 reports the main zone limit as "  0.0", padded with whitespace
+    "SR6012": {"Main": 0.0, "Zone2": -10.0},
+    "AVC-X3700H": {"Main": NO_LIMIT, "Zone2": -10.0},
+    "AV7703": {"Main": -10.0, "Zone2": 0.0, "Zone3": -10.0},
+}
+
 APPCOMMAND_URL = "/goform/AppCommand.xml"
 STATUS_URL = "/goform/formMainZone_MainZoneXmlStatus.xml"
 STATUS_Z2_URL = "/goform/formZone2_Zone2XmlStatus.xml"
@@ -234,6 +249,24 @@ class TestMainFunctions:
             assert (
                 self.denon.state is not None
             ), f"State is None for receiver {receiver}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_max_volume(self, httpx_mock: HTTPXMock):
+        """Check that the volume limit is read from every AppCommand sample."""
+        httpx_mock.add_callback(self.custom_matcher)
+        for receiver, expected in MAX_VOLUMES.items():
+            # Switch receiver and update to load new sample files
+            self.testing_receiver = receiver
+            spec = TESTING_RECEIVERS[receiver]
+            self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+            await self.denon.async_setup()
+            for name, zone in self.denon.zones.items():
+                await zone.async_update()
+                assert zone.max_volume == expected[name], (
+                    f"Max volume is {zone.max_volume} not {expected[name]} for"
+                    f" receiver {receiver}, zone {name}"
+                )
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
