@@ -21,6 +21,10 @@ from .const import (
     CHANNEL_VOLUME_MAP_REVERSE,
     DENON_ATTR_SETATTR,
     MAIN_ZONE,
+    MAX_VOLUME_MAX,
+    MAX_VOLUME_MIN,
+    MAX_VOLUME_STEP,
+    MAX_VOLUME_TELNET_EVENT,
     STATE_ON,
     SUBWOOFERS_MAP,
     SUBWOOFERS_MAP_REVERSE,
@@ -122,7 +126,13 @@ class DenonAVRVolume(DenonAVRFoundation):
             self._device.api.add_appcommand_update_tag(tag)
 
         self._device.telnet_api.register_callback("MV", self._volume_callback)
-        self._device.telnet_api.register_callback("SS", self._max_volume_callback)
+        # Registered under the zone's own event name rather than the bare SS
+        # prefix: _send_confirmation_callback compares events, so an SS
+        # registration lets any SS push confirm a pending limit write.
+        self._device.telnet_api.register_callback(
+            MAX_VOLUME_TELNET_EVENT[self._device.zone],
+            self._max_volume_callback,
+        )
         self._device.telnet_api.register_callback("MU", self._mute_callback)
         self._device.telnet_api.register_callback("CV", self._channel_volume_callback)
         self._device.telnet_api.register_callback("PS", self._subwoofer_state_callback)
@@ -140,17 +150,20 @@ class DenonAVRVolume(DenonAVRFoundation):
         self._volume = parameter
 
     def _max_volume_callback(self, zone: str, _event: str, parameter: str) -> None:
-        """Handle a max volume change event."""
-        if parameter[0:9] != "VCTZMALIM":
-            return
+        """
+        Handle a volume limit change event.
 
-        if self._device.zone != zone:
-            return
+        The callback is registered under the zone's own event name, so the
+        parameter is whatever followed it and carries no zone of its own.
 
-        value = parameter[9:].strip()
+        Every change to the limit is pushed here, whoever makes it.
+        """
+        value = parameter.strip()
         if value in ("OFF", ""):
             volume = None
         else:
+            # A plain integer on the absolute scale, zero padded on zone 2 and
+            # zone 3 but never a half step, so this is not the MV encoding.
             volume = -80.0 + float(value)
 
         if self._max_volume != volume:
@@ -427,6 +440,40 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self._device.api.async_get_command(
                 self._device.urls.command_set_volume.format(volume=volume)
             )
+
+    async def async_set_max_volume(self, max_volume: Optional[float]) -> None:
+        """
+        Set the receiver volume limit.
+
+        The limit is given in the same scale as the volume, from -20.0 to 0.0,
+        and None turns it off. The main zone takes every whole step; zone 2 and
+        zone 3 only take multiples of 10.0.
+        """
+        if max_volume is None:
+            telnet_command = self._device.telnet_commands.command_max_volume_off
+            url = self._device.urls.command_max_volume_off
+        else:
+            step = MAX_VOLUME_STEP[self._device.zone]
+            if (
+                max_volume < MAX_VOLUME_MIN
+                or max_volume > MAX_VOLUME_MAX
+                or max_volume % step != 0
+            ):
+                raise AvrCommandError(f"Invalid max volume: {max_volume}")
+
+            # The receiver ignores a value it does not accept, answering the
+            # same 200 with an empty body either way, so the domain is checked
+            # here rather than read back.
+            value = int(max_volume + 80)
+            telnet_command = self._device.telnet_commands.command_set_max_volume.format(
+                value=value
+            )
+            url = self._device.urls.command_set_max_volume.format(value=value)
+
+        if self._device.telnet_available:
+            await self._device.telnet_api.async_send_commands(telnet_command)
+        else:
+            await self._device.api.async_get_command(url)
 
     async def async_mute(self, mute: bool) -> None:
         """Mute receiver."""
