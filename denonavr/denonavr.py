@@ -914,9 +914,20 @@ class DenonAVR(DenonAVRFoundation):
         Set receiver volume.
 
         Volume is send in a format like -50.0.
-        Minimum is -80.0, maximum at 18.0
+        Minimum is -80.0, maximum at 18.0, or max_volume when a volume limit is
+        configured on the receiver.
         """
         await self.vol.async_set_volume(volume)
+
+    async def async_set_max_volume(self, max_volume: Optional[float]) -> None:
+        """
+        Set the receiver volume limit.
+
+        The limit is given in the same scale as the volume, from -20.0 to 0.0,
+        and None turns it off. The main zone takes every whole step; zone 2 and
+        zone 3 only take multiples of 10.0.
+        """
+        await self.vol.async_set_max_volume(max_volume)
 
     async def async_mute(self, mute: bool) -> None:
         """Mute receiver."""

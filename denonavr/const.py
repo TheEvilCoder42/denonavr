@@ -37,6 +37,8 @@ ReceiverURLs = namedtuple(
         "command_volume_up",
         "command_volume_down",
         "command_set_volume",
+        "command_set_max_volume",
+        "command_max_volume_off",
         "command_mute_on",
         "command_mute_off",
         "command_sel_sound_mode",
@@ -151,6 +153,8 @@ TelnetCommands = namedtuple(
         "command_volume_up",
         "command_volume_down",
         "command_set_volume",
+        "command_set_max_volume",
+        "command_max_volume_off",
         "command_mute_on",
         "command_mute_off",
         "command_sel_sound_mode",
@@ -628,6 +632,8 @@ COMMAND_POWER_STANDBY_URL = "/goform/formiPhoneAppPower.xml?1+PowerStandby"
 COMMAND_VOLUME_UP_URL = "/goform/formiPhoneAppDirect.xml?MVUP"
 COMMAND_VOLUME_DOWN_URL = "/goform/formiPhoneAppDirect.xml?MVDOWN"
 COMMAND_SET_VOLUME_URL = "/goform/formiPhoneAppVolume.xml?1+{volume:.1f}"
+COMMAND_SET_MAX_VOLUME_URL = "/goform/formiPhoneAppDirect.xml?SSVCTZMALIM%20{value}"
+COMMAND_MAX_VOLUME_OFF_URL = "/goform/formiPhoneAppDirect.xml?SSVCTZMALIM%20OFF"
 COMMAND_MUTE_ON_URL = "/goform/formiPhoneAppMute.xml?1+MuteOn"
 COMMAND_MUTE_OFF_URL = "/goform/formiPhoneAppMute.xml?1+MuteOff"
 COMMAND_SEL_SM_URL = "/goform/formiPhoneAppDirect.xml?MS"
@@ -741,6 +747,10 @@ COMMAND_POWER_STANDBY_Z2_URL = "/goform/formiPhoneAppPower.xml?2+PowerStandby"
 COMMAND_VOLUME_UP_Z2_URL = "/goform/formiPhoneAppDirect.xml?Z2UP"
 COMMAND_VOLUME_DOWN_Z2_URL = "/goform/formiPhoneAppDirect.xml?Z2DOWN"
 COMMAND_SET_VOLUME_Z2_URL = "/goform/formiPhoneAppVolume.xml?2+{volume:.1f}"
+COMMAND_SET_MAX_VOLUME_Z2_URL = (
+    "/goform/formiPhoneAppDirect.xml?SSVCTZ2SLIM%20{value:03d}"
+)
+COMMAND_MAX_VOLUME_OFF_Z2_URL = "/goform/formiPhoneAppDirect.xml?SSVCTZ2SLIM%20OFF"
 COMMAND_MUTE_ON_Z2_URL = "/goform/formiPhoneAppMute.xml?2+MuteOn"
 COMMAND_MUTE_OFF_Z2_URL = "/goform/formiPhoneAppMute.xml?2+MuteOff"
 
@@ -753,6 +763,10 @@ COMMAND_POWER_STANDBY_Z3_URL = "/goform/formiPhoneAppPower.xml?3+PowerStandby"
 COMMAND_VOLUME_UP_Z3_URL = "/goform/formiPhoneAppDirect.xml?Z3UP"
 COMMAND_VOLUME_DOWN_Z3_URL = "/goform/formiPhoneAppDirect.xml?Z3DOWN"
 COMMAND_SET_VOLUME_Z3_URL = "/goform/formiPhoneAppVolume.xml?3+{volume:.1f}"
+COMMAND_SET_MAX_VOLUME_Z3_URL = (
+    "/goform/formiPhoneAppDirect.xml?SSVCTZ3SLIM%20{value:03d}"
+)
+COMMAND_MAX_VOLUME_OFF_Z3_URL = "/goform/formiPhoneAppDirect.xml?SSVCTZ3SLIM%20OFF"
 COMMAND_MUTE_ON_Z3_URL = "/goform/formiPhoneAppMute.xml?3+MuteOn"
 COMMAND_MUTE_OFF_Z3_URL = "/goform/formiPhoneAppMute.xml?3+MuteOff"
 
@@ -772,6 +786,8 @@ DENONAVR_URLS = ReceiverURLs(
     command_volume_up=COMMAND_VOLUME_UP_URL,
     command_volume_down=COMMAND_VOLUME_DOWN_URL,
     command_set_volume=COMMAND_SET_VOLUME_URL,
+    command_set_max_volume=COMMAND_SET_MAX_VOLUME_URL,
+    command_max_volume_off=COMMAND_MAX_VOLUME_OFF_URL,
     command_mute_on=COMMAND_MUTE_ON_URL,
     command_mute_off=COMMAND_MUTE_OFF_URL,
     command_sel_sound_mode=COMMAND_SEL_SM_URL,
@@ -892,6 +908,8 @@ ZONE2_URLS = ReceiverURLs(
     command_volume_up=COMMAND_VOLUME_UP_Z2_URL,
     command_volume_down=COMMAND_VOLUME_DOWN_Z2_URL,
     command_set_volume=COMMAND_SET_VOLUME_Z2_URL,
+    command_set_max_volume=COMMAND_SET_MAX_VOLUME_Z2_URL,
+    command_max_volume_off=COMMAND_MAX_VOLUME_OFF_Z2_URL,
     command_mute_on=COMMAND_MUTE_ON_Z2_URL,
     command_mute_off=COMMAND_MUTE_OFF_Z2_URL,
     command_sel_sound_mode=COMMAND_SEL_SM_URL,
@@ -1012,6 +1030,8 @@ ZONE3_URLS = ReceiverURLs(
     command_volume_up=COMMAND_VOLUME_UP_Z3_URL,
     command_volume_down=COMMAND_VOLUME_DOWN_Z3_URL,
     command_set_volume=COMMAND_SET_VOLUME_Z3_URL,
+    command_set_max_volume=COMMAND_SET_MAX_VOLUME_Z3_URL,
+    command_max_volume_off=COMMAND_MAX_VOLUME_OFF_Z3_URL,
     command_mute_on=COMMAND_MUTE_ON_Z3_URL,
     command_mute_off=COMMAND_MUTE_OFF_Z3_URL,
     command_sel_sound_mode=COMMAND_SEL_SM_URL,
@@ -1144,6 +1164,9 @@ TELNET_EVENTS = {
     "SP",
     "SR",
     "SS",
+    "SSVCTZMALIM",
+    "SSVCTZ2SLIM",
+    "SSVCTZ3SLIM",
     "STBY",
     "SV",
     "SY",
@@ -1183,6 +1206,8 @@ DENONAVR_TELNET_COMMANDS = TelnetCommands(
     command_volume_up="MVUP",
     command_volume_down="MVDOWN",
     command_set_volume="MV{volume:02d}",
+    command_set_max_volume="SSVCTZMALIM {value}",
+    command_max_volume_off="SSVCTZMALIM OFF",
     command_mute_on="MUON",
     command_mute_off="MUOFF",
     command_sel_sound_mode="MS",
@@ -1301,6 +1326,8 @@ ZONE2_TELNET_COMMANDS = TelnetCommands(
     command_volume_up="Z2UP",
     command_volume_down="Z2DOWN",
     command_set_volume="Z2{volume:02d}",
+    command_set_max_volume="SSVCTZ2SLIM {value:03d}",
+    command_max_volume_off="SSVCTZ2SLIM OFF",
     command_mute_on="Z2MUON",
     command_mute_off="Z2MUOFF",
     command_sel_sound_mode="MS",
@@ -1419,6 +1446,8 @@ ZONE3_TELNET_COMMANDS = TelnetCommands(
     command_volume_up="Z3UP",
     command_volume_down="Z3DOWN",
     command_set_volume="Z3{volume:02d}",
+    command_set_max_volume="SSVCTZ3SLIM {value:03d}",
+    command_max_volume_off="SSVCTZ3SLIM OFF",
     command_mute_on="Z3MUON",
     command_mute_off="Z3MUOFF",
     command_sel_sound_mode="MS",
@@ -1554,6 +1583,21 @@ ALL_ZONES = "All"
 MAIN_ZONE = "Main"
 ZONE2 = "Zone2"
 ZONE3 = "Zone3"
+
+# Domain of the volume limit, in the same relative dB scale as the volume.
+# The main zone accepts every whole step, zone 2 only three values; zone 3 is
+# assumed to follow zone 2 and is untested.
+MAX_VOLUME_MIN = -20.0
+MAX_VOLUME_MAX = 0.0
+MAX_VOLUME_STEP = {MAIN_ZONE: 1.0, ZONE2: 10.0, ZONE3: 10.0}
+
+# Telnet event each zone pushes when its volume limit changes, within 0.1 s of
+# a write over either transport.
+MAX_VOLUME_TELNET_EVENT = {
+    MAIN_ZONE: "SSVCTZMALIM",
+    ZONE2: "SSVCTZ2SLIM",
+    ZONE3: "SSVCTZ3SLIM",
+}
 VALID_ZONES = {MAIN_ZONE, ZONE2, ZONE3}
 
 # Setup additional zones
