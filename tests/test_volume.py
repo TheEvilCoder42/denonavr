@@ -21,7 +21,44 @@ from denonavr.const import (
     ZONE3_URLS,
 )
 from denonavr.exceptions import AvrCommandError
-from denonavr.volume import DenonAVRVolume
+from denonavr.volume import DenonAVRVolume, convert_max_volume
+
+
+class TestConvertMaxVolume:
+    """Test case for the volume limit converter."""
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("-20.0", -20.0),
+            ("-10.0", -10.0),
+            ("0.0", 0.0),
+            # SR6012 pads the value with whitespace, so the OFF/--/"" guard has
+            # to strip before comparing, not only before float()
+            ("  0.0", 0.0),
+            (" OFF ", None),
+            ("OFF", None),
+            ("--", None),
+            ("", None),
+            (-20.0, -20.0),
+        ],
+    )
+    def test_limit_values(self, value, expected):
+        """Check that a limit is converted and OFF becomes None."""
+        assert convert_max_volume(value) == expected
+
+
+class TestVolumeEventsLeaveTheLimitAlone:
+    """Test case for volume events not being read as the volume limit."""
+
+    def test_a_volume_change_does_not_disturb_the_limit(self):
+        """Check that MV and the limit stay independent."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        volume._volume_callback(MAIN_ZONE, "MV", "565")
+        assert volume.volume == -23.5
+        assert volume.max_volume == -10.0
 
 
 def _zone_volume(zone=None, urls=None, telnet_commands=None):

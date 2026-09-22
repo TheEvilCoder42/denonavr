@@ -385,6 +385,16 @@ class DenonAVR(DenonAVRFoundation):
         return self.vol.volume
 
     @property
+    def max_volume(self) -> float:
+        """
+        Return the highest volume the receiver will take, as float.
+
+        This is the configured volume limit, reported in the same scale as
+        volume, or the hardware maximum of 18.0 when no limit is set.
+        """
+        return self.vol.max_volume
+
+    @property
     def input_func(self) -> Optional[str]:
         """Return the current input source as string."""
         return self.input.input_func
