@@ -255,13 +255,16 @@ class TestSetSpeakerPreset:
         speaker_preset = DenonAVRSpeakerPreset()
         # pylint: disable=protected-access
         telnet_api = speaker_preset._device.telnet_api
-        with mock.patch.object(
-            type(speaker_preset._device),
-            "telnet_available",
-            mock.PropertyMock(return_value=True),
-        ), mock.patch.object(
-            telnet_api, "async_send_commands", mock.AsyncMock()
-        ) as send:
+        with (
+            mock.patch.object(
+                type(speaker_preset._device),
+                "telnet_available",
+                mock.PropertyMock(return_value=True),
+            ),
+            mock.patch.object(
+                telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
             await speaker_preset.async_speaker_preset(1)
 
         send.assert_awaited_once_with("SPPR 1")
