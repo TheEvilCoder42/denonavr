@@ -157,13 +157,16 @@ class TestSetAudioDelay:
         audio_delay = DenonAVRAudioDelay()
         # pylint: disable=protected-access
         telnet_api = audio_delay._device.telnet_api
-        with mock.patch.object(
-            type(audio_delay._device),
-            "telnet_available",
-            mock.PropertyMock(return_value=True),
-        ), mock.patch.object(
-            telnet_api, "async_send_commands", mock.AsyncMock()
-        ) as send:
+        with (
+            mock.patch.object(
+                type(audio_delay._device),
+                "telnet_available",
+                mock.PropertyMock(return_value=True),
+            ),
+            mock.patch.object(
+                telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
             await audio_delay.async_delay(50)
 
         send.assert_awaited_once_with("PSDELAY 050")

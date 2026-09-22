@@ -796,12 +796,14 @@ class TestAutoLipSync:
         # pylint: disable=protected-access
         device = denon._device
         device.manufacturer = manufacturer
-        with mock.patch.object(
-            type(device), "async_identify_receiver", mock.AsyncMock()
-        ), mock.patch.object(
-            type(device), "async_get_device_info", mock.AsyncMock()
-        ), mock.patch.object(
-            type(device), "async_identify_update_method", mock.AsyncMock()
+        with (
+            mock.patch.object(
+                type(device), "async_identify_receiver", mock.AsyncMock()
+            ),
+            mock.patch.object(type(device), "async_get_device_info", mock.AsyncMock()),
+            mock.patch.object(
+                type(device), "async_identify_update_method", mock.AsyncMock()
+            ),
         ):
             await device.async_setup()
         return denon
@@ -876,11 +878,14 @@ class TestAutoLipSync:
         denon = await self.setup_receiver(manufacturer)
         # pylint: disable=protected-access
         device = denon._device
-        with mock.patch.object(
-            type(device), "telnet_available", mock.PropertyMock(return_value=True)
-        ), mock.patch.object(
-            device.telnet_api, "async_send_commands", mock.AsyncMock()
-        ) as send:
+        with (
+            mock.patch.object(
+                type(device), "telnet_available", mock.PropertyMock(return_value=True)
+            ),
+            mock.patch.object(
+                device.telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
             await denon.async_auto_lip_sync_on()
 
         send.assert_awaited_once_with(expected)
@@ -986,11 +991,14 @@ class TestAutoLipSync:
         # pylint: disable=protected-access
         device = denon._device
         device.telnet_api._process_event("SSHOSALS ON")
-        with mock.patch.object(
-            type(device), "telnet_available", mock.PropertyMock(return_value=True)
-        ), mock.patch.object(
-            device.telnet_api, "async_send_commands", mock.AsyncMock()
-        ) as send:
+        with (
+            mock.patch.object(
+                type(device), "telnet_available", mock.PropertyMock(return_value=True)
+            ),
+            mock.patch.object(
+                device.telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
             await denon.async_auto_lip_sync_toggle()
 
         send.assert_awaited_once_with("SSHOSALS OFF")
