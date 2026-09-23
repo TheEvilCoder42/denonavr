@@ -267,6 +267,24 @@ class TestMainFunctions:
                     f"Max volume is {zone.max_volume} not {expected[name]} for"
                     f" receiver {receiver}, zone {name}"
                 )
+                assert (
+                    zone.max_volume_known
+                ), f"Max volume unknown for receiver {receiver}, zone {name}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_max_volume_unknown_without_appcommand(self, httpx_mock: HTTPXMock):
+        """Check that a receiver polled over status XML never reports a limit."""
+        httpx_mock.add_callback(self.custom_matcher)
+        self.testing_receiver = "AVR-3313"
+        spec = TESTING_RECEIVERS["AVR-3313"]
+        self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+        await self.denon.async_setup()
+        for name, zone in self.denon.zones.items():
+            await zone.async_update()
+            assert (
+                not zone.max_volume_known
+            ), f"Max volume known for AVR-3313, zone {name}"
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
