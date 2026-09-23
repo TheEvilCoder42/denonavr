@@ -23,6 +23,7 @@ from denonavr.const import (
     ZONE3_URLS,
 )
 from denonavr.exceptions import AvrCommandError
+from denonavr.foundation import DenonAVRDeviceInfo
 from denonavr.volume import DenonAVRVolume, convert_max_volume
 
 
@@ -117,7 +118,18 @@ def _zone_volume(zone=None, urls=None, telnet_commands=None):
         volume._device.urls = urls
         volume._device.telnet_commands = telnet_commands
     volume._device.api.async_get_command = mock.AsyncMock()
+    volume._device.telnet_api.async_send_commands = mock.AsyncMock()
     return volume
+
+
+def _telnet_connected():
+    """Patch the device to report a healthy telnet connection."""
+    return mock.patch.object(
+        DenonAVRDeviceInfo,
+        "telnet_available",
+        new_callable=mock.PropertyMock,
+        return_value=True,
+    )
 
 
 class TestSetMaxVolume:
@@ -233,3 +245,210 @@ class TestMaxVolumeCallback:
         # pylint: disable=protected-access
         volume._max_volume_callback(MAIN_ZONE, "SSVCTZ2SLIM", " 060")
         assert volume.max_volume == -20.0
+
+
+class TestVolumeUpCeiling:
+    """
+    Test case for volume up stopping at the ceiling over telnet.
+
+    The ceiling is the limit, or the hardware maximum when none is set.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "max_volume,current",
+        [
+            (-10.0, -10.0),
+            # a limit lowered below the current volume
+            (-20.0, -10.0),
+            # no limit falls back to the hardware maximum
+            (None, 18.0),
+        ],
+    )
+    async def test_stops_at_the_ceiling(self, max_volume, current):
+        """Check that volume up is not sent at or above the ceiling."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = max_volume
+        volume._volume = current
+        with _telnet_connected():
+            await volume.async_volume_up()
+        volume._device.telnet_api.async_send_commands.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_zero_limit_is_not_treated_as_absent(self):
+        """
+        Check that a limit of 0.0 dB still stops volume up.
+
+        0.0 is a legal limit and it is falsy, so a truthiness check on the
+        limit would fall back to the hardware maximum instead.
+        """
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = 0.0
+        volume._volume = 0.0
+        with _telnet_connected():
+            await volume.async_volume_up()
+        volume._device.telnet_api.async_send_commands.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "max_volume,current",
+        [(-10.0, -10.5), (0.0, -0.5), (None, 17.5)],
+    )
+    async def test_below_the_ceiling_is_sent(self, max_volume, current):
+        """Check that half a step below the ceiling still goes out."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = max_volume
+        volume._volume = current
+        with _telnet_connected():
+            await volume.async_volume_up()
+        volume._device.telnet_api.async_send_commands.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_unknown_volume_does_not_block(self):
+        """Check that volume up is sent before any volume was reported."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        with _telnet_connected():
+            await volume.async_volume_up()
+        volume._device.telnet_api.async_send_commands.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_http_is_not_gated(self):
+        """Check that the guard applies to telnet only."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        volume._volume = -10.0
+        await volume.async_volume_up()
+        volume._device.api.async_get_command.assert_awaited_once()
+
+
+class TestSetVolume:
+    """Test case for setting the volume against the hardware range and limit."""
+
+    @pytest.mark.asyncio
+    async def test_clamped_to_the_limit_over_telnet(self):
+        """Check that a volume above the limit is sent as the limit."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        volume._volume = -40.0
+        with _telnet_connected():
+            await volume.async_set_volume(-5.0)
+        volume._device.telnet_api.async_send_commands.assert_awaited_once_with("MV70")
+
+    @pytest.mark.asyncio
+    async def test_clamped_to_the_current_volume_is_skipped(self):
+        """Check that nothing is sent when the clamped value is already set."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        volume._volume = -10.0
+        with _telnet_connected():
+            await volume.async_set_volume(-5.0)
+        volume._device.telnet_api.async_send_commands.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_http_is_not_clamped(self):
+        """Check that the clamp applies to telnet only."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._max_volume = -10.0
+        volume._volume = -40.0
+        await volume.async_set_volume(-5.0)
+        url = volume._device.api.async_get_command.await_args[0][0]
+        assert url.endswith("?1+-5.0")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [-80.0, 18.0])
+    async def test_hardware_range_is_accepted(self, value):
+        """Check that both ends of the hardware range are sent."""
+        volume = _zone_volume()
+        await volume.async_set_volume(value)
+        # pylint: disable=protected-access
+        volume._device.api.async_get_command.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [-80.5, 18.5])
+    async def test_outside_the_hardware_range_is_rejected(self, value):
+        """Check that a volume outside -80.0 to 18.0 raises."""
+        volume = _zone_volume()
+        with pytest.raises(AvrCommandError):
+            await volume.async_set_volume(value)
+        # pylint: disable=protected-access
+        volume._device.api.async_get_command.assert_not_awaited()
+
+
+class TestHttpVolume:
+    """Test case for reading the volume over HTTP."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "filename,expected",
+        [
+            # 0 dB and above come unsigned and padded, as "  0" and " 10"
+            ("AVR-X2000-formZone3_Zone3XmlStatus.xml", 0.0),
+            ("NR1604-formZone2_Zone2XmlStatus.xml", 10.0),
+            ("AVR-3311CI-formMainZone_MainZoneXmlStatus.xml", -46.5),
+            ("AVR-X4000-formZone2_Zone2XmlStatus.xml", -80.0),
+        ],
+    )
+    async def test_status_xml_volume(self, filename, expected):
+        """Check that the status XML volume reads as dB, not as the telnet encoding."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._device.api.async_get_xml = mock.AsyncMock(
+            return_value=ET.parse(f"tests/xml/{filename}").getroot()
+        )
+        await volume.async_update_attrs_status_xml(volume.status_xml_attrs, ["status"])
+        assert volume.volume == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            # the AVR-X1700H reports zone 2 at 0 dB and +18 dB in this form
+            ("  0", 0.0),
+            (" 18", 18.0),
+            ("-40.0", -40.0),
+            ("--", -80.0),
+        ],
+    )
+    async def test_appcommand_volume(self, value, expected):
+        """Check that the GetAllZoneVolume volume reads as dB."""
+        volume = _zone_volume()
+        # pylint: disable=protected-access
+        volume._device.api.async_post_appcommand = mock.AsyncMock(
+            return_value=ET.fromstring(
+                f'<rx><cmd cmd_text="GetAllZoneVolume"><zone1><volume>{value}'
+                "</volume></zone1></cmd></rx>"
+            )
+        )
+        await volume.async_update_attrs_appcommand({AppCommands.GetAllZoneVolume: None})
+        assert volume.volume == expected
+
+
+class TestTelnetVolume:
+    """Test case for decoding the telnet volume encoding."""
+
+    @pytest.mark.parametrize(
+        "parameter,expected",
+        [
+            ("98", 18.0),
+            # above the hardware maximum is clamped to it
+            ("985", 18.0),
+            ("99", 18.0),
+            # more than three digits is not a volume
+            ("1000", -80.0),
+        ],
+    )
+    def test_edges_of_the_range(self, parameter, expected):
+        """Check the top of the range, the clamp and an overlong value."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._volume_callback(MAIN_ZONE, "MV", parameter)
+        assert volume.volume == expected
