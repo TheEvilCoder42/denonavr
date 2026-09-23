@@ -395,6 +395,15 @@ class DenonAVR(DenonAVRFoundation):
         return self.vol.max_volume
 
     @property
+    def max_volume_known(self) -> bool:
+        """
+        Return whether the receiver has reported its volume limit.
+
+        Until it has, max_volume reads as if no limit were set.
+        """
+        return self.vol.max_volume_known
+
+    @property
     def input_func(self) -> Optional[str]:
         """Return the current input source as string."""
         return self.input.input_func
