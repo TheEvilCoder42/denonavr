@@ -12,6 +12,7 @@ from unittest import mock
 import pytest
 
 from denonavr.api import DenonAVRTelnetApi
+from denonavr.const import MAIN_ZONE
 
 
 class TestMaxVolumeEvent:
@@ -65,4 +66,40 @@ class TestMaxVolumeEvent:
         assert not api._send_confirmation_event.is_set()
 
         api._send_confirmation_callback("SSVCTZMALIM 70")
+        assert api._send_confirmation_event.is_set()
+
+
+class TestMvmaxIsDropped:
+    """
+    Test case for the MVMAX telnet message being discarded.
+
+    MVMAX follows every MV and does not track limit changes, so it is dropped
+    before it reaches any callback rather than read as a second MV.
+    """
+
+    def test_mvmax_reaches_no_listener(self):
+        """Check that neither MV nor generic listeners see MVMAX."""
+        api = DenonAVRTelnetApi()
+        mv_callback = mock.Mock()
+        all_callback = mock.Mock()
+        api.register_callback("MV", mv_callback)
+        api.register_callback("ALL", all_callback)
+
+        # pylint: disable=protected-access
+        api._process_event("MV56")
+        api._process_event("MVMAX 98")
+
+        mv_callback.assert_called_once_with(MAIN_ZONE, "MV", "56")
+        all_callback.assert_called_once_with(MAIN_ZONE, "MV", "56")
+
+    def test_mvmax_does_not_confirm_a_pending_mv(self):
+        """Check that MVMAX cannot confirm a volume command as executed."""
+        api = DenonAVRTelnetApi()
+        # pylint: disable=protected-access
+        api._send_confirmation_command = "MV56"
+
+        api._process_event("MVMAX 98")
+        assert not api._send_confirmation_event.is_set()
+
+        api._process_event("MV56")
         assert api._send_confirmation_event.is_set()
