@@ -8,9 +8,11 @@ This module covers tests of the volume limit of Denon AVR receivers.
 """
 
 from unittest import mock
+from xml.etree import ElementTree as ET
 
 import pytest
 
+from denonavr.appcommand import AppCommands
 from denonavr.const import (
     MAIN_ZONE,
     ZONE2,
@@ -59,6 +61,51 @@ class TestVolumeEventsLeaveTheLimitAlone:
         volume._volume_callback(MAIN_ZONE, "MV", "565")
         assert volume.volume == -23.5
         assert volume.max_volume == -10.0
+
+
+class TestMaxVolumeKnown:
+    """Test case for telling an unreported limit from no limit."""
+
+    def test_not_known_before_any_report(self):
+        """Check that a fresh instance reads as no limit, but not known."""
+        volume = DenonAVRVolume()
+        assert volume.max_volume == 18.0
+        assert volume.max_volume_known is False
+
+    @pytest.mark.parametrize(
+        "parameter,expected",
+        [(" OFF", 18.0), (" 70", -10.0)],
+    )
+    def test_telnet_report_makes_it_known(self, parameter, expected):
+        """Check that OFF over telnet is a report, not an unchanged None."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._max_volume_callback(MAIN_ZONE, "SSVCTZMALIM", parameter)
+        assert volume.max_volume == expected
+        assert volume.max_volume_known is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "zone_xml,known,expected",
+        [
+            ("<volume>-40.0</volume><limit>OFF</limit>", True, 18.0),
+            ("<volume>-40.0</volume><limit>-20.0</limit>", True, -20.0),
+            ("<volume>-40.0</volume>", False, 18.0),
+        ],
+    )
+    async def test_http_report_makes_it_known(self, zone_xml, known, expected):
+        """Check that only a <limit> in the response makes the limit known."""
+        volume = DenonAVRVolume()
+        # pylint: disable=protected-access
+        volume._device.api.async_post_appcommand = mock.AsyncMock(
+            return_value=ET.fromstring(
+                f'<rx><cmd cmd_text="GetAllZoneVolume"><zone1>{zone_xml}'
+                "</zone1></cmd></rx>"
+            )
+        )
+        await volume.async_update_attrs_appcommand({AppCommands.GetAllZoneVolume: None})
+        assert volume.max_volume == expected
+        assert volume.max_volume_known is known
 
 
 def _zone_volume(zone=None, urls=None, telnet_commands=None):

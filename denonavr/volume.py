@@ -9,7 +9,7 @@ This module implements the handler for volume of Denon AVR receivers.
 
 import logging
 from collections.abc import Hashable
-from typing import Dict, Optional, Union, get_args
+from typing import Any, Dict, Optional, Union, get_args
 
 import attr
 
@@ -56,6 +56,15 @@ def convert_max_volume(value: Union[float, str]) -> Optional[float]:
     return float(value)
 
 
+def _mark_max_volume_known(
+    instance: "DenonAVRVolume", _attribute: attr.Attribute, value: Any
+) -> Any:
+    """Record that the receiver has reported its volume limit, OFF included."""
+    # pylint: disable=protected-access
+    instance._max_volume_known = True
+    return value
+
+
 def convert_volume(value: str) -> float:
     """Convert volume to float."""
     if value is None or value == "--":
@@ -89,9 +98,14 @@ def convert_volume(value: str) -> float:
 class DenonAVRVolume(DenonAVRFoundation):
     """This class implements volume functions of Denon AVR receiver."""
 
+    # None is both "no limit" and "not reported yet", so every assignment,
+    # over HTTP or telnet, also marks the limit as known.
     _max_volume: Optional[float] = attr.ib(
-        converter=attr.converters.optional(convert_max_volume), default=None
+        converter=attr.converters.optional(convert_max_volume),
+        default=None,
+        on_setattr=[*DENON_ATTR_SETATTR, _mark_max_volume_known],
     )
+    _max_volume_known: bool = attr.ib(default=False)
     _volume: Optional[float] = attr.ib(
         converter=attr.converters.optional(convert_volume), default=None
     )
@@ -166,9 +180,10 @@ class DenonAVRVolume(DenonAVRFoundation):
             # zone 3 but never a half step, so this is not the MV encoding.
             volume = -80.0 + float(value)
 
+        # Assigned even when unchanged, so OFF marks a never read limit known.
         if self._max_volume != volume:
-            self._max_volume = volume
-            _LOGGER.debug("Set max volume: %s", self._max_volume)
+            _LOGGER.debug("Set max volume: %s", volume)
+        self._max_volume = volume
 
     def _mute_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle a muting change event."""
@@ -300,6 +315,15 @@ class DenonAVRVolume(DenonAVRFoundation):
         Volume is sent in a format like -50.0.
         """
         return self._max_volume if self._max_volume is not None else 18.0
+
+    @property
+    def max_volume_known(self) -> bool:
+        """
+        Return whether the receiver has reported its volume limit.
+
+        Until it has, max_volume reads as if no limit were set.
+        """
+        return self._max_volume_known
 
     @property
     def channel_volumes(self) -> Optional[Dict[Channels, float]]:
