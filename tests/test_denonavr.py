@@ -640,6 +640,33 @@ class TestMainFunctions:
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    @pytest.mark.parametrize(
+        ("message", "refreshes"),
+        [
+            ("SSAUDSTS 0202102021000000", 0),
+            ("SSINFAISSIG 03", 0),
+            ("SSFUNAUX1 PS4", 1),
+            ("SSSODPHONO DEL", 1),
+        ],
+    )
+    async def test_input_func_update_only_on_source_events(
+        self, httpx_mock: HTTPXMock, message, refreshes
+    ):
+        """Check that only source rename and delete events refresh the inputs."""
+        httpx_mock.add_callback(self.custom_matcher)
+        self.testing_receiver = "AVR-X4300H"
+        self.denon = denonavr.DenonAVR(FAKE_IP)
+        await self.denon.async_setup()
+        with mock.patch.object(
+            self.denon.input, "async_update_inputfuncs", new_callable=mock.AsyncMock
+        ) as update_mock:
+            # pylint: disable=protected-access
+            self.denon._device.telnet_api._process_event(message)
+            await asyncio.sleep(0)
+        assert update_mock.await_count == refreshes
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
     async def test_one_zone_telnet_connect_refreshes_power_before_source(
         self, httpx_mock: HTTPXMock
     ):
