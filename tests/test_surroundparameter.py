@@ -326,6 +326,10 @@ class TestSurroundParameterRequest:
         httpx_mock.add_response(
             content=get_sample_content("AVR-X1700H-AppCommand-update-volume.xml")
         )
+        # The poll reads the channel levels in a second AppCommand.xml post
+        httpx_mock.add_response(
+            content=get_sample_content("AVR-X1700H-AppCommand-chlevel-idle.xml")
+        )
         volume = volume_instance()
         # pylint: disable=protected-access
         volume._device.zone = zone
