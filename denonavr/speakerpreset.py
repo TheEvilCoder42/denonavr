@@ -78,7 +78,7 @@ class DenonAVRSpeakerPreset(DenonAVRFoundation):
             # Keyed the way the input source read keys it, so the two share
             # one fetch of a static document rather than making two.
             xml = await self._device.api.async_get_xml(
-                self._device.urls.deviceinfo, cache_id=id(self._device)
+                self._device.urls.deviceinfo, cache_id=id(self._device.api)
             )
         except AvrRequestError as err:
             _LOGGER.debug("Error getting the speaker preset list: %s", err)
