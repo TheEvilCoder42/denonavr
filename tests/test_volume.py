@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-This module covers tests of the volume limit of Denon AVR receivers.
+This module covers tests of the volume functions of Denon AVR receivers.
 
 :copyright: (c) 2016 by Oliver Goetz.
 :license: MIT, see LICENSE for more details.

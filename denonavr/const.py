@@ -491,6 +491,7 @@ SOUND_MODE_MAPPING = {
         "DOLBY D+ +EX",
         "DOLBY D+ +PL2Z H",
         "DOLBY D+DS",
+        "DOLBY D+NEURAL:X",
         "DOLBY D+PL2Z H",
         "DOLBY DIGITAL",
         "DOLBY DIGITAL +",
