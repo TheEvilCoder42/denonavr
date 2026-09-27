@@ -185,8 +185,8 @@ class AppCommands:
                 update_attribute="_treble", add_zone=False, suffix="/treblevalue"
             ),
         ),
-        # The receiver serves this command with every element blank for long
-        # stretches, while tone control is working and telnet reports values
+        # Blank for long stretches while tone control works and telnet reports
+        # values, so the last value read is kept and HTTP steps start from it
         blank_is_unknown=False,
     )
     # Replace set command with a real command using attr.evolve
