@@ -1227,7 +1227,7 @@ DENONAVR_TELNET_COMMANDS = TelnetCommands(
     command_power_standby="ZMOFF",
     command_volume_up="MVUP",
     command_volume_down="MVDOWN",
-    command_set_volume="MV{volume:02d}",
+    command_set_volume="MV{volume}",
     command_set_max_volume="SSVCTZMALIM {value}",
     command_max_volume_off="SSVCTZMALIM OFF",
     command_mute_on="MUON",
@@ -1349,7 +1349,7 @@ ZONE2_TELNET_COMMANDS = TelnetCommands(
     command_power_standby="Z2OFF",
     command_volume_up="Z2UP",
     command_volume_down="Z2DOWN",
-    command_set_volume="Z2{volume:02d}",
+    command_set_volume="Z2{volume}",
     command_set_max_volume="SSVCTZ2SLIM {value:03d}",
     command_max_volume_off="SSVCTZ2SLIM OFF",
     command_mute_on="Z2MUON",
@@ -1471,7 +1471,7 @@ ZONE3_TELNET_COMMANDS = TelnetCommands(
     command_power_standby="Z3OFF",
     command_volume_up="Z3UP",
     command_volume_down="Z3DOWN",
-    command_set_volume="Z3{volume:02d}",
+    command_set_volume="Z3{volume}",
     command_set_max_volume="SSVCTZ3SLIM {value:03d}",
     command_max_volume_off="SSVCTZ3SLIM OFF",
     command_mute_on="Z3MUON",
@@ -1626,6 +1626,12 @@ MAX_VOLUME_TELNET_EVENT = {
     ZONE2: "SSVCTZ2SLIM",
     ZONE3: "SSVCTZ3SLIM",
 }
+
+# Zones whose telnet volume command takes a half step as a third digit in
+# tenths. The main zone does. Zone 2 ignores a three digit value outright, and
+# rejects a half step over HTTP as well -- it moves in whole dB, so there is
+# nothing to encode. Zone 3 is assumed to follow zone 2 and is untested.
+VOLUME_TELNET_HALF_STEP = {MAIN_ZONE: True, ZONE2: False, ZONE3: False}
 VALID_ZONES = {MAIN_ZONE, ZONE2, ZONE3}
 
 # Setup additional zones
