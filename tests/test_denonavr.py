@@ -18,7 +18,7 @@ import denonavr
 from denonavr.api import DenonAVRTelnetApi, DenonAVRTelnetProtocol
 from denonavr.const import SOUND_MODE_MAPPING, STATE_OFF, STATE_ON
 from denonavr.decorators import async_handle_receiver_exceptions
-from denonavr.exceptions import AvrNetworkError, AvrTimoutError
+from denonavr.exceptions import AvrCommandError, AvrNetworkError, AvrTimoutError
 from denonavr.volume import DenonAVRVolume
 
 FAKE_IP = "10.0.0.0"
@@ -1065,3 +1065,263 @@ class TestMainFunctions:
             protocol.data_received(b"MV565\r")
             await self.future
             assert self.denon.volume == -23.5
+
+
+class TestAutoLipSync:
+    """Test case for auto lip sync, which the two brands spell differently."""
+
+    @staticmethod
+    async def setup_receiver(manufacturer: str) -> denonavr.DenonAVR:
+        """Return a set up receiver of the given brand, without any I/O."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        device = denon._device
+        device.manufacturer = manufacturer
+        with (
+            mock.patch.object(
+                type(device), "async_identify_receiver", mock.AsyncMock()
+            ),
+            mock.patch.object(type(device), "async_get_device_info", mock.AsyncMock()),
+            mock.patch.object(
+                type(device), "async_identify_update_method", mock.AsyncMock()
+            ),
+        ):
+            await device.async_setup()
+        return denon
+
+    @pytest.mark.asyncio
+    async def test_a_denon_listens_to_the_opals_block(self):
+        """Check that a Denon registers the OPALS callback instead of SSHOS."""
+        denon = await self.setup_receiver("Denon")
+        # pylint: disable=protected-access
+        device = denon._device
+        callbacks = device.telnet_api._callbacks
+
+        assert device._auto_lip_sync_denon_callback in callbacks["OP"]
+        assert device._auto_lip_sync_callback not in callbacks["SS"]
+
+    @pytest.mark.asyncio
+    async def test_a_marantz_still_listens_to_the_sshos_block(self):
+        """Check that the Marantz registrations are untouched."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        device = denon._device
+        callbacks = device.telnet_api._callbacks
+
+        assert device._auto_lip_sync_callback in callbacks["SS"]
+        assert device._illumination_callback in callbacks["ILB"]
+        assert device._auto_lip_sync_denon_callback not in callbacks.get("OP", [])
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            pytest.param("OPALSSET ON", True, id="on"),
+            pytest.param("OPALSSET OFF", False, id="off"),
+        ],
+    )
+    async def test_a_denon_event_moves_the_value(self, message: str, expected: bool):
+        """Check that an OPALSSET event arrives through the telnet event path."""
+        denon = await self.setup_receiver("Denon")
+        # pylint: disable=protected-access
+        denon._device.telnet_api._process_event(message)
+
+        assert denon._device.auto_lip_sync is expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param("OPALSDSP OFF", id="display-flag"),
+            pytest.param("OPALSVAL 000", id="measured-offset"),
+        ],
+    )
+    async def test_the_other_opals_members_are_ignored(self, message: str):
+        """Check that the neighbours in the block do not leak into the value."""
+        denon = await self.setup_receiver("Denon")
+        # pylint: disable=protected-access
+        denon._device.telnet_api._process_event(message)
+
+        assert denon._device.auto_lip_sync is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "manufacturer,expected",
+        [
+            pytest.param("Denon", "OPALSSET ON", id="denon"),
+            pytest.param("Marantz", "SSHOSALS ON", id="marantz"),
+        ],
+    )
+    async def test_the_telnet_command_is_brand_specific(
+        self, manufacturer: str, expected: str
+    ):
+        """Check that each brand is sent the command its own block knows."""
+        denon = await self.setup_receiver(manufacturer)
+        # pylint: disable=protected-access
+        device = denon._device
+        with (
+            mock.patch.object(
+                type(device), "telnet_available", mock.PropertyMock(return_value=True)
+            ),
+            mock.patch.object(
+                device.telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
+            await denon.async_auto_lip_sync_on()
+
+        send.assert_awaited_once_with(expected)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "manufacturer,expected",
+        [
+            pytest.param("Denon", "OPALSSET%20OFF", id="denon"),
+            pytest.param("Marantz", "SSHOSALS%20OFF", id="marantz"),
+        ],
+    )
+    async def test_the_http_command_is_brand_specific(
+        self, httpx_mock: HTTPXMock, manufacturer: str, expected: str
+    ):
+        """Check that the direct URL carries the command of the brand."""
+        httpx_mock.add_response()
+        denon = await self.setup_receiver(manufacturer)
+        await denon.async_auto_lip_sync_off()
+
+        request = httpx_mock.get_requests()[0]
+        assert request.url.path == "/goform/formiPhoneAppDirect.xml"
+        assert str(request.url.query, "utf-8") == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "async_auto_lip_sync_on",
+            "async_auto_lip_sync_off",
+        ],
+    )
+    async def test_a_denon_no_longer_refuses_the_command(
+        self, httpx_mock: HTTPXMock, command: str
+    ):
+        """Check that the guard that made this Marantz only is gone."""
+        httpx_mock.add_response()
+        denon = await self.setup_receiver("Denon")
+
+        try:
+            await getattr(denon, command)()
+        except AvrCommandError as err:
+            pytest.fail(f"{command} still refuses to run on a Denon: {err}")
+
+    @pytest.mark.asyncio
+    async def test_an_http_toggle_follows_the_settings_value(
+        self, httpx_mock: HTTPXMock
+    ):
+        """Check that toggle decides on the value GetAudioDelay reported."""
+        httpx_mock.add_response()
+        denon = await self.setup_receiver("Denon")
+        # pylint: disable=protected-access
+        denon.audiodelay._auto_lip_sync = "1"
+        await denon.async_auto_lip_sync_toggle()
+
+        request = httpx_mock.get_requests()[0]
+        assert str(request.url.query, "utf-8") == "OPALSSET%20OFF"
+
+    @pytest.mark.asyncio
+    async def test_a_toggle_without_a_known_state_raises(self):
+        """Check that toggle does not guess when no transport reported a value."""
+        denon = await self.setup_receiver("Denon")
+        with pytest.raises(AvrCommandError):
+            await denon.async_auto_lip_sync_toggle()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            pytest.param("SSHOSALS ON", True, id="on"),
+            pytest.param("SSHOSALS OFF", False, id="off"),
+        ],
+    )
+    async def test_a_marantz_event_moves_the_value(self, message: str, expected: bool):
+        """Check that an SSHOSALS event arrives through the telnet event path."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        denon._device.telnet_api._process_event(message)
+
+        assert denon._device.auto_lip_sync is expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param("SSHOSCONARC ON", id="arc"),
+            pytest.param("SSHOSRSS ON", id="rss"),
+            pytest.param("SSHOS END", id="block-terminator"),
+        ],
+    )
+    async def test_the_other_sshos_members_are_ignored(self, message: str):
+        """Check that the neighbours in the block do not leak into the value."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        denon._device.telnet_api._process_event(message)
+
+        assert denon._device.auto_lip_sync is None
+
+    @pytest.mark.asyncio
+    async def test_a_marantz_toggle_follows_the_pushed_value(self):
+        """Check that toggle turns the setting off once a push has said it is on."""
+        denon = await self.setup_receiver("Marantz")
+        # pylint: disable=protected-access
+        device = denon._device
+        device.telnet_api._process_event("SSHOSALS ON")
+        with (
+            mock.patch.object(
+                type(device), "telnet_available", mock.PropertyMock(return_value=True)
+            ),
+            mock.patch.object(
+                device.telnet_api, "async_send_commands", mock.AsyncMock()
+            ) as send,
+        ):
+            await denon.async_auto_lip_sync_toggle()
+
+        send.assert_awaited_once_with("SSHOSALS OFF")
+
+    @pytest.mark.asyncio
+    async def test_a_telnet_push_is_not_shadowed_by_the_settings_value(self):
+        """Check that the pushed value wins over the one read over HTTP."""
+        denon = await self.setup_receiver("Denon")
+        # pylint: disable=protected-access
+        denon.audiodelay._auto_lip_sync = "1"
+        with mock.patch.object(
+            type(denon._device),
+            "telnet_available",
+            mock.PropertyMock(return_value=True),
+        ):
+            denon._device.telnet_api._process_event("OPALSSET OFF")
+
+            assert denon.auto_lip_sync is False
+
+    @pytest.mark.asyncio
+    async def test_the_settings_value_is_used_without_telnet(self):
+        """Check that an HTTP only client still reads the setting."""
+        denon = await self.setup_receiver("Denon")
+        # pylint: disable=protected-access
+        denon.audiodelay._auto_lip_sync = "1"
+
+        assert denon.auto_lip_sync is True
+
+
+class TestDeviceProperties:
+    """Test case for DenonAVR properties that delegate to the device."""
+
+    def test_auto_lip_sync_reads_the_device(self):
+        """Check that auto lip sync is read from the device instance."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device._auto_lip_sync = "ON"
+        assert denon.auto_lip_sync is True
+
+    def test_illumination_reads_the_device(self):
+        """Check that illumination is read from the device instance."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device._illumination = "DIM"
+        assert denon.illumination == "Dim"

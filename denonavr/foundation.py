@@ -79,6 +79,7 @@ from .const import (
 )
 from .exceptions import (
     AvrCommandError,
+    AvrIncompleteResponseError,
     AvrNetworkError,
     AvrRequestError,
     AvrTimoutError,
@@ -167,9 +168,6 @@ class DenonAVRDeviceInfo:
     _auto_standbys = get_args(AutoStandbys)
     _sleep: Optional[Union[str, int]] = attr.ib(
         converter=attr.converters.optional(str), default=None
-    )
-    _delay: Optional[int] = attr.ib(
-        converter=attr.converters.optional(int), default=None
     )
     _eco_mode: Optional[str] = attr.ib(
         converter=attr.converters.optional(ECO_MODE_MAP.get), default=None
@@ -298,11 +296,6 @@ class DenonAVRDeviceInfo:
 
         self._triggers[int(values[0])] = values[1]
 
-    def _delay_callback(self, zone: str, event: str, parameter: str) -> None:
-        """Handle a delay change event."""
-        if zone == self.zone and parameter[0:5] == "DELAY":
-            self._delay = parameter[6:]
-
     def _eco_mode_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle an Eco-mode change event."""
         if zone == self.zone and parameter in ECO_MODE_MAP_TELNET:
@@ -397,18 +390,22 @@ class DenonAVRDeviceInfo:
             self._illumination = parameter[4:]
 
     def _auto_lip_sync_callback(self, zone: str, event: str, parameter: str) -> None:
-        """Handle a auto lip sync change event."""
-        if parameter[0:3] != "HOS":
+        """Handle a auto lip sync change event of a Marantz device."""
+        if parameter[0:6] != "HOSALS":
             return
 
-        if parameter[6:] == "HOSALS":
-            auto_lip_sync = parameter[5:]
-        elif parameter[3:] == "HOS":
-            auto_lip_sync = parameter[4:]
-        else:
+        self._auto_lip_sync = parameter[7:]
+
+    def _auto_lip_sync_denon_callback(
+        self, zone: str, event: str, parameter: str
+    ) -> None:
+        """Handle a auto lip sync change event of a Denon device."""
+        # Denon carries the setting in the OPALS block, which shares no
+        # prefix structure with the SSHOS block Marantz uses for it
+        if parameter[0:6] != "ALSSET":
             return
 
-        self._auto_lip_sync = auto_lip_sync
+        self._auto_lip_sync = parameter[7:]
 
     async def async_setup(self, cache_id: Optional[Hashable] = None) -> None:
         """
@@ -459,7 +456,6 @@ class DenonAVRDeviceInfo:
 
             self.telnet_api.register_callback("MN", self._settings_menu_callback)
             self.telnet_api.register_callback("DIM", self._dimmer_callback)
-            self.telnet_api.register_callback("PS", self._delay_callback)
             self.telnet_api.register_callback("ECO", self._eco_mode_callback)
             self.telnet_api.register_callback("VS", self._hdmi_output_callback)
             self.telnet_api.register_callback("VS", self._hdmi_audio_decode_callback)
@@ -478,7 +474,11 @@ class DenonAVRDeviceInfo:
             self.telnet_api.register_callback("PS", self._graphic_eq_callback)
             self.telnet_api.register_callback("PS", self._headphone_eq_callback)
 
-            if not self.is_denon:
+            if self.is_denon:
+                self.telnet_api.register_callback(
+                    "OP", self._auto_lip_sync_denon_callback
+                )
+            else:
                 self.telnet_api.register_callback("ILB", self._illumination_callback)
                 self.telnet_api.register_callback("SS", self._auto_lip_sync_callback)
 
@@ -860,15 +860,6 @@ class DenonAVRDeviceInfo:
         return self._sleep
 
     @property
-    def delay(self) -> Optional[int]:
-        """
-        Return the audio delay for the device in ms.
-
-        Only available if using Telnet.
-        """
-        return self._delay
-
-    @property
     def eco_mode(self) -> Optional[str]:
         """
         Returns the eco-mode for the device.
@@ -1042,7 +1033,7 @@ class DenonAVRDeviceInfo:
         """
         Return the auto lip sync status for the device.
 
-        Only available on Marantz devices and when using Telnet.
+        Only available when using Telnet.
         """
         return self._auto_lip_sync
 
@@ -1441,24 +1432,6 @@ class DenonAVRDeviceInfo:
             else:
                 command = self.urls.command_smart_select_memory
             await self.api.async_get_command(command.format(number=quick_select_number))
-
-    async def async_delay_up(self) -> None:
-        """Delay up on receiver."""
-        if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_delay_up
-            )
-        else:
-            await self.api.async_get_command(self.urls.command_delay_up)
-
-    async def async_delay_down(self) -> None:
-        """Delay down on receiver."""
-        if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_delay_down
-            )
-        else:
-            await self.api.async_get_command(self.urls.command_delay_down)
 
     async def async_eco_mode(self, mode: EcoModes) -> None:
         """Set Eco mode."""
@@ -1872,55 +1845,30 @@ class DenonAVRDeviceInfo:
                 self.urls.command_illumination.format(mode=mapped_mode)
             )
 
-    async def async_auto_lip_sync_on(self) -> None:
-        """
-        Turn on auto lip sync on receiver.
-
-        Only available on Marantz devices.
-        """
-        if self.is_denon:
-            raise AvrCommandError("Auto lip sync is only available for Marantz devices")
-
+    async def _async_auto_lip_sync(self, mode: str) -> None:
+        """Send an auto lip sync command in the spelling of the brand."""
         if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_auto_lip_sync.format(mode="ON")
+            command = (
+                self.telnet_commands.command_auto_lip_sync_denon
+                if self.is_denon
+                else self.telnet_commands.command_auto_lip_sync
             )
+            await self.telnet_api.async_send_commands(command.format(mode=mode))
         else:
-            await self.api.async_get_command(
-                self.urls.command_auto_lip_sync.format(mode="ON")
+            command = (
+                self.urls.command_auto_lip_sync_denon
+                if self.is_denon
+                else self.urls.command_auto_lip_sync
             )
+            await self.api.async_get_command(command.format(mode=mode))
+
+    async def async_auto_lip_sync_on(self) -> None:
+        """Turn on auto lip sync on receiver."""
+        await self._async_auto_lip_sync("ON")
 
     async def async_auto_lip_sync_off(self) -> None:
-        """
-        Turn off auto lip sync on receiver.
-
-        Only available on Marantz devices.
-        """
-        if self.is_denon:
-            raise AvrCommandError("Auto lip sync is only available for Marantz devices")
-
-        if self.telnet_available:
-            await self.telnet_api.async_send_commands(
-                self.telnet_commands.command_auto_lip_sync.format(mode="OFF")
-            )
-        else:
-            await self.api.async_get_command(
-                self.urls.command_auto_lip_sync.format(mode="OFF")
-            )
-
-    async def async_auto_lip_sync_toggle(self) -> None:
-        """
-        Toggle auto lip sync on receiver.
-
-        Only available on Marantz devices and when using Telnet.
-        """
-        if self.is_denon:
-            raise AvrCommandError("Auto lip sync is only available for Marantz devices")
-
-        if self._auto_lip_sync:
-            await self.async_auto_lip_sync_off()
-        else:
-            await self.async_auto_lip_sync_on()
+        """Turn off auto lip sync on receiver."""
+        await self._async_auto_lip_sync("OFF")
 
     async def async_page_up(self) -> None:
         """Page Up on receiver."""
@@ -2069,9 +2017,20 @@ class DenonAVRFoundation:
         # Execute call
         try:
             if global_update:
-                xml = await self._device.api.async_get_global_appcommand(
-                    appcommand0300=appcommand0300, cache_id=cache_id
-                )
+                try:
+                    xml = await self._device.api.async_get_global_appcommand(
+                        appcommand0300=appcommand0300, cache_id=cache_id
+                    )
+                except AvrIncompleteResponseError:
+                    # A short AppCommand.xml answer must reach async_update,
+                    # which falls back to status XML on it
+                    if not appcommand0300:
+                        raise
+                    # A model that does not know one of the shared tags answers
+                    # short, which must not cost the modules whose tags it knows
+                    xml = await self._device.api.async_post_appcommand(
+                        self._device.urls.appcommand0300, tags, cache_id=cache_id
+                    )
             else:
                 # Determine endpoint
                 if appcommand0300:

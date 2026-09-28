@@ -79,6 +79,7 @@ ReceiverURLs = namedtuple(
         "command_tactile_transducer_lpf",
         "command_delay_up",
         "command_delay_down",
+        "command_delay",
         "command_auromatic_3d_preset",
         "command_auromatic_3d_strength",
         "command_auro_3d_mode",
@@ -125,6 +126,7 @@ ReceiverURLs = namedtuple(
         "command_dac_filter",  # Marantz Only
         "command_illumination",  # Marantz Only
         "command_auto_lip_sync",  # Marantz Only
+        "command_auto_lip_sync_denon",  # Denon Only
         "command_dolby_atmos_toggle_denon",
         "command_dolby_atmos_toggle_marantz",
         "command_page_up_denon",
@@ -201,6 +203,7 @@ TelnetCommands = namedtuple(
         "command_tactile_transducer_lpf",
         "command_delay_up",
         "command_delay_down",
+        "command_delay",
         "command_auromatic_3d_preset",
         "command_auromatic_3d_strength",
         "command_auro_3d_mode",
@@ -247,6 +250,7 @@ TelnetCommands = namedtuple(
         "command_dac_filter",  # Marantz Only
         "command_illumination",  # Marantz Only
         "command_auto_lip_sync",  # Marantz Only
+        "command_auto_lip_sync_denon",  # Denon Only
         "command_dolby_atmos_toggle_denon",
         "command_dolby_atmos_toggle_marantz",
         "command_page_up_denon",
@@ -671,6 +675,9 @@ COMMAND_TACTILE_TRANSDUCER_LEVEL = "/goform/formiPhoneAppDirect.xml?SSTTRLEV%20{
 COMMAND_TACTILE_TRANSDUCER_LPF = (
     "/goform/formiPhoneAppDirect.xml?SSTTRLPF%20{frequency}"
 )
+# PSDELAY only accepts a zero padded three digit value, "PSDELAY 50" is
+# answered with HTTP 200 and silently dropped while "PSDELAY 050" works
+COMMAND_DELAY = "/goform/formiPhoneAppDirect.xml?PSDELAY%20{value}"
 COMMAND_DELAY_UP = "/goform/formiPhoneAppDirect.xml?PSDELAY%20UP"
 COMMAND_DELAY_DOWN = "/goform/formiPhoneAppDirect.xml?PSDELAY%20DOWN"
 COMMAND_AUROMATIC_3D_PRESET = "/goform/formiPhoneAppDirect.xml?PSAUROPR%20{preset}"
@@ -721,6 +728,9 @@ COMMAND_DAC_FILTER = "/goform/formiPhoneAppDirect.xml?PSDACFIL%20{mode}"  # Mara
 COMMAND_ILLUMINATION = "/goform/formiPhoneAppDirect.xml?ILB%20{mode}"  # Marantz Only
 COMMAND_AUTO_LIP_SYNC = (
     "/goform/formiPhoneAppDirect.xml?SSHOSALS%20{mode}"  # Marantz Only
+)
+COMMAND_AUTO_LIP_SYNC_DENON = (
+    "/goform/formiPhoneAppDirect.xml?OPALSSET%20{mode}"  # Denon Only
 )
 COMMAND_DOLBY_ATMOS_TOGGLE_DENON = "/goform/formiPhoneAppDirect.xml?RCKSK0410348"
 COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ = "/goform/formiPhoneAppDirect.xml?RCRC51606425"
@@ -829,6 +839,7 @@ DENONAVR_URLS = ReceiverURLs(
     command_tactile_transducer_lpf=COMMAND_TACTILE_TRANSDUCER_LPF,
     command_delay_up=COMMAND_DELAY_UP,
     command_delay_down=COMMAND_DELAY_DOWN,
+    command_delay=COMMAND_DELAY,
     command_auromatic_3d_preset=COMMAND_AUROMATIC_3D_PRESET,
     command_auromatic_3d_strength=COMMAND_AUROMATIC_3D_STRENGTH,
     command_auro_3d_mode=COMMAND_AURO_3D_MODE,
@@ -875,6 +886,7 @@ DENONAVR_URLS = ReceiverURLs(
     command_dac_filter=COMMAND_DAC_FILTER,  # Marantz Only
     command_illumination=COMMAND_ILLUMINATION,  # Marantz Only
     command_auto_lip_sync=COMMAND_AUTO_LIP_SYNC,  # Marantz Only
+    command_auto_lip_sync_denon=COMMAND_AUTO_LIP_SYNC_DENON,  # Denon Only
     command_dolby_atmos_toggle_denon=COMMAND_DOLBY_ATMOS_TOGGLE_DENON,
     command_dolby_atmos_toggle_marantz=COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ,
     command_page_up_denon=COMMAND_PAGE_UP_DENON,
@@ -951,6 +963,7 @@ ZONE2_URLS = ReceiverURLs(
     command_tactile_transducer_lpf=COMMAND_TACTILE_TRANSDUCER_LPF,
     command_delay_up=COMMAND_DELAY_UP,
     command_delay_down=COMMAND_DELAY_DOWN,
+    command_delay=COMMAND_DELAY,
     command_auromatic_3d_preset=COMMAND_AUROMATIC_3D_PRESET,
     command_auromatic_3d_strength=COMMAND_AUROMATIC_3D_STRENGTH,
     command_auro_3d_mode=COMMAND_AURO_3D_MODE,
@@ -997,6 +1010,7 @@ ZONE2_URLS = ReceiverURLs(
     command_dac_filter=COMMAND_DAC_FILTER,  # Marantz Only
     command_illumination=COMMAND_ILLUMINATION,  # Marantz Only
     command_auto_lip_sync=COMMAND_AUTO_LIP_SYNC,  # Marantz Only
+    command_auto_lip_sync_denon=COMMAND_AUTO_LIP_SYNC_DENON,  # Denon Only
     command_dolby_atmos_toggle_denon=COMMAND_DOLBY_ATMOS_TOGGLE_DENON,
     command_dolby_atmos_toggle_marantz=COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ,
     command_page_up_denon=COMMAND_PAGE_UP_DENON,
@@ -1073,6 +1087,7 @@ ZONE3_URLS = ReceiverURLs(
     command_tactile_transducer_lpf=COMMAND_TACTILE_TRANSDUCER_LPF,
     command_delay_up=COMMAND_DELAY_UP,
     command_delay_down=COMMAND_DELAY_DOWN,
+    command_delay=COMMAND_DELAY,
     command_auromatic_3d_preset=COMMAND_AUROMATIC_3D_PRESET,
     command_auromatic_3d_strength=COMMAND_AUROMATIC_3D_STRENGTH,
     command_auro_3d_mode=COMMAND_AURO_3D_MODE,
@@ -1119,6 +1134,7 @@ ZONE3_URLS = ReceiverURLs(
     command_dac_filter=COMMAND_DAC_FILTER,  # Marantz Only
     command_illumination=COMMAND_ILLUMINATION,  # Marantz Only
     command_auto_lip_sync=COMMAND_AUTO_LIP_SYNC,  # Marantz Only
+    command_auto_lip_sync_denon=COMMAND_AUTO_LIP_SYNC_DENON,  # Denon Only
     command_dolby_atmos_toggle_denon=COMMAND_DOLBY_ATMOS_TOGGLE_DENON,
     command_dolby_atmos_toggle_marantz=COMMAND_DOLBY_ATMOS_TOGGLE_MARANTZ,
     command_page_up_denon=COMMAND_PAGE_UP_DENON,
@@ -1255,6 +1271,7 @@ DENONAVR_TELNET_COMMANDS = TelnetCommands(
     command_tactile_transducer_lpf="SSTTRLPF {frequency}",
     command_delay_up="PSDELAY UP",
     command_delay_down="PSDELAY DOWN",
+    command_delay="PSDELAY {value}",
     command_auromatic_3d_preset="PSAUROPR {preset}",
     command_auromatic_3d_strength="PSAUROST {value}",
     command_auro_3d_mode="PSAUROMODE {mode}",
@@ -1301,6 +1318,7 @@ DENONAVR_TELNET_COMMANDS = TelnetCommands(
     command_dac_filter="PSDACFIL {mode}",  # Marantz Only
     command_illumination="ILB {mode}",  # Marantz Only
     command_auto_lip_sync="SSHOSALS {mode}",  # Marantz Only
+    command_auto_lip_sync_denon="OPALSSET {mode}",  # Denon Only
     command_dolby_atmos_toggle_denon="RCKSK0410348",
     command_dolby_atmos_toggle_marantz="RCRC51606425",
     command_page_up_denon="RCKSK0410945",
@@ -1375,6 +1393,7 @@ ZONE2_TELNET_COMMANDS = TelnetCommands(
     command_tactile_transducer_lpf="SSTTRLPF {frequency}",
     command_delay_up="PSDELAY UP",
     command_delay_down="PSDELAY DOWN",
+    command_delay="PSDELAY {value}",
     command_auromatic_3d_preset="PSAUROPR {preset}",
     command_auromatic_3d_strength="PSAUROST {value}",
     command_auro_3d_mode="PSAUROMODE {mode}",
@@ -1421,6 +1440,7 @@ ZONE2_TELNET_COMMANDS = TelnetCommands(
     command_dac_filter="PSDACFIL {mode}",  # Marantz Only
     command_illumination="ILB {mode}",  # Marantz Only
     command_auto_lip_sync="SSHOSALS {mode}",  # Marantz Only
+    command_auto_lip_sync_denon="OPALSSET {mode}",  # Denon Only
     command_dolby_atmos_toggle_denon="RCKSK0410348",
     command_dolby_atmos_toggle_marantz="RCRC51606425",
     command_page_up_denon="RCKSK0410945",
@@ -1495,6 +1515,7 @@ ZONE3_TELNET_COMMANDS = TelnetCommands(
     command_tactile_transducer_lpf="SSTTRLPF {frequency}",
     command_delay_up="PSDELAY UP",
     command_delay_down="PSDELAY DOWN",
+    command_delay="PSDELAY {value}",
     command_auromatic_3d_preset="PSAUROPR {preset}",
     command_auromatic_3d_strength="PSAUROST {value}",
     command_auro_3d_mode="PSAUROMODE {mode}",
@@ -1541,6 +1562,7 @@ ZONE3_TELNET_COMMANDS = TelnetCommands(
     command_dac_filter="PSDACFIL {mode}",  # Marantz Only
     command_illumination="ILB {mode}",  # Marantz Only
     command_auto_lip_sync="SSHOSALS {mode}",  # Marantz Only
+    command_auto_lip_sync_denon="OPALSSET {mode}",  # Denon Only
     command_dolby_atmos_toggle_denon="RCKSK0410348",
     command_dolby_atmos_toggle_marantz="RCRC51606425",
     command_page_up_denon="RCKSK0410945",
