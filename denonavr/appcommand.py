@@ -108,6 +108,9 @@ class AppCommands:
             AppCommandResponsePattern(
                 update_attribute="_volume", add_zone=True, suffix="/volume"
             ),
+            AppCommandResponsePattern(
+                update_attribute="_max_volume", add_zone=True, suffix="/limit"
+            ),
         ),
     )
 
@@ -125,6 +128,11 @@ class AppCommands:
         ),
     )
 
+    # GetChLevel returns a repeated <ch> list, which AppCommandResponsePattern
+    # cannot express: it sets one attribute from one fixed tag path. The
+    # response is parsed in volume.py instead.
+    GetChLevel = AppCommandCmd(cmd_id="1", cmd_text="GetChLevel")
+
     GetDimmer = AppCommandCmd(
         cmd_id="1",
         cmd_text="GetDimmer",
@@ -141,6 +149,40 @@ class AppCommands:
         response_pattern=(
             AppCommandResponsePattern(
                 update_attribute="_eco_mode", add_zone=False, suffix="/mode"
+            ),
+        ),
+    )
+
+    GetSubwooferLevel = AppCommandCmd(
+        cmd_id="1",
+        cmd_text="GetSubwooferLevel",
+        response_pattern=(
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer_level_status",
+                add_zone=False,
+                suffix="/status",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer1_value",
+                add_zone=False,
+                suffix="/sw1value",
+            ),
+            # A receiver declaring one subwoofer sends none of the three
+            # below, which costs a debug line each and nothing else
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer2_value",
+                add_zone=False,
+                suffix="/sw2value",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer3_value",
+                add_zone=False,
+                suffix="/sw3value",
+            ),
+            AppCommandResponsePattern(
+                update_attribute="_subwoofer4_value",
+                add_zone=False,
+                suffix="/sw4value",
             ),
         ),
     )

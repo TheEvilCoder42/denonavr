@@ -8,27 +8,38 @@ This module implements the handler for volume of Denon AVR receivers.
 """
 
 import logging
+import xml.etree.ElementTree as ET
 from collections.abc import Hashable
-from typing import Dict, Optional, Union, get_args
+from typing import Any, Dict, Optional, Union, get_args
 
 import attr
 
 from .appcommand import AppCommands
 from .const import (
+    APPCOMMAND_CMD_TEXT,
+    APPCOMMAND_LEVEL_ZERO,
     CHANNEL_MAP,
     CHANNEL_MAP_REVERSE,
     CHANNEL_VOLUME_MAP,
     CHANNEL_VOLUME_MAP_REVERSE,
     DENON_ATTR_SETATTR,
     MAIN_ZONE,
+    MAX_VOLUME_MAX,
+    MAX_VOLUME_MIN,
+    MAX_VOLUME_STEP,
+    MAX_VOLUME_TELNET_EVENT,
     STATE_ON,
     SUBWOOFERS_MAP,
     SUBWOOFERS_MAP_REVERSE,
     Channels,
     Subwoofers,
 )
-from .exceptions import AvrCommandError, AvrProcessingError
-from .foundation import DenonAVRFoundation, convert_on_off_bool
+from .exceptions import AvrCommandError, AvrProcessingError, AvrRequestError
+from .foundation import (
+    DenonAVRFoundation,
+    convert_on_off_bool,
+    convert_string_int_bool,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,9 +49,53 @@ def convert_muted(value: str) -> bool:
     return bool(value.lower() == STATE_ON)
 
 
+def convert_appcommand_level(value: Union[float, str]) -> Optional[float]:
+    """
+    Convert a level reported by AppCommand.xml to dB.
+
+    The AppCommand interface reports a level as a whole number from 0 to 48
+    with 24 as 0.0 dB, which is not the telnet scale in CHANNEL_VOLUME_MAP.
+    A level the receiver cannot report right now comes back as an empty tag.
+    """
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    return (float(value) - APPCOMMAND_LEVEL_ZERO) / 2
+
+
+def convert_max_volume(value: Union[float, str]) -> Optional[float]:
+    """
+    Convert the volume limit to float, or None when no limit is set.
+
+    Handles both the HTTP <limit> tag (uses dB, OFF when unset) and
+    plain float from the Telnet API.
+    """
+    if isinstance(value, str):
+        value = value.strip()
+        if value in ("OFF", "--", ""):
+            return None
+    return float(value)
+
+
+def _mark_max_volume_known(
+    instance: "DenonAVRVolume", _attribute: attr.Attribute, value: Any
+) -> Any:
+    """Record that the receiver has reported its volume limit, OFF included."""
+    # pylint: disable=protected-access
+    instance._max_volume_known = True
+    return value
+
+
 def convert_volume(value: Union[float, str]) -> float:
-    """Convert volume to float."""
-    if value == "--":
+    """
+    Convert volume to float.
+
+    HTTP reports in dB
+    The telnet wire format is a different, absolute 2/3-digit encoding,
+    decoded separately in_volume_callback before it reaches this converter.
+    """
+    if value is None or value == "--":
         return -80.0
     return float(value)
 
@@ -49,6 +104,14 @@ def convert_volume(value: Union[float, str]) -> float:
 class DenonAVRVolume(DenonAVRFoundation):
     """This class implements volume functions of Denon AVR receiver."""
 
+    # None is both "no limit" and "not reported yet", so every assignment,
+    # over HTTP or telnet, also marks the limit as known.
+    _max_volume: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_max_volume),
+        default=None,
+        on_setattr=[*DENON_ATTR_SETATTR, _mark_max_volume_known],
+    )
+    _max_volume_known: bool = attr.ib(default=False)
     _volume: Optional[float] = attr.ib(
         converter=attr.converters.optional(convert_volume), default=None
     )
@@ -56,12 +119,28 @@ class DenonAVRVolume(DenonAVRFoundation):
         converter=attr.converters.optional(convert_muted), default=None
     )
     _channel_volumes: Optional[Dict[Channels, float]] = attr.ib(default=None)
+    _channel_volumes_appcommand: Optional[Dict[Channels, float]] = attr.ib(default=None)
     _valid_channels = get_args(Channels)
     _subwoofer: Optional[bool] = attr.ib(
         converter=attr.converters.optional(convert_on_off_bool), default=None
     )
     _subwoofer_levels_adjustment: bool = attr.ib(default=True)
     _subwoofer_levels: Optional[Dict[Subwoofers, float]] = attr.ib(default=None)
+    _subwoofer_level_status: Optional[bool] = attr.ib(
+        converter=attr.converters.optional(convert_string_int_bool), default=None
+    )
+    _subwoofer1_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
+    _subwoofer2_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
+    _subwoofer3_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
+    _subwoofer4_value: Optional[float] = attr.ib(
+        converter=attr.converters.optional(convert_appcommand_level), default=None
+    )
     _valid_subwoofers = get_args(Subwoofers)
     _lfe: Optional[int] = attr.ib(converter=attr.converters.optional(int), default=None)
     _bass_sync: Optional[int] = attr.ib(
@@ -72,6 +151,7 @@ class DenonAVRVolume(DenonAVRFoundation):
     appcommand_attrs = {
         AppCommands.GetAllZoneVolume: None,
         AppCommands.GetAllZoneMuteStatus: None,
+        AppCommands.GetSubwooferLevel: None,
     }
     # Status.xml interface
     status_xml_attrs = {"_volume": "./MasterVolume/value", "_muted": "./Mute/value"}
@@ -81,8 +161,18 @@ class DenonAVRVolume(DenonAVRFoundation):
         # Add tags for a potential AppCommand.xml update
         for tag in self.appcommand_attrs:
             self._device.api.add_appcommand_update_tag(tag)
+        # GetChLevel is answered in the same response but parsed separately,
+        # so it is registered here rather than in appcommand_attrs
+        self._device.api.add_appcommand_update_tag(AppCommands.GetChLevel)
 
         self._device.telnet_api.register_callback("MV", self._volume_callback)
+        # Registered under the zone's own event name rather than the bare SS
+        # prefix: _send_confirmation_callback compares events, so an SS
+        # registration lets any SS push confirm a pending limit write.
+        self._device.telnet_api.register_callback(
+            MAX_VOLUME_TELNET_EVENT[self._device.zone],
+            self._max_volume_callback,
+        )
         self._device.telnet_api.register_callback("MU", self._mute_callback)
         self._device.telnet_api.register_callback("CV", self._channel_volume_callback)
         self._device.telnet_api.register_callback("PS", self._subwoofer_state_callback)
@@ -92,17 +182,53 @@ class DenonAVRVolume(DenonAVRFoundation):
 
         self._is_setup = True
 
-    def _volume_callback(self, zone: str, event: str, parameter: str) -> None:
+    def _volume_callback(self, zone: str, _event: str, parameter: str) -> None:
         """Handle a volume change event."""
         if self._device.zone != zone:
             return
 
-        if len(parameter) < 3:
-            self._volume = -80.0 + float(parameter)
+        raw_value = parameter.strip()
+        if len(raw_value) > 3:
+            _LOGGER.warning(
+                "Volume value length is invalid: %s, defaulting to -80.0 dB", raw_value
+            )
+            self._volume = -80.0
+            return
+
+        if len(raw_value) < 3:
+            converted = -80.0 + float(raw_value)
         else:
-            whole_number = float(parameter[0:2])
-            fraction = 0.1 * float(parameter[2])
-            self._volume = -80.0 + whole_number + fraction
+            converted = float(raw_value[:2] + "." + raw_value[2]) - 80.0
+
+        if converted < -80.0 or converted > 18.0:
+            _LOGGER.warning(
+                "Volume %s converted to %s is out of range. Will use clamping.",
+                raw_value,
+                converted,
+            )
+        self._volume = max(min(converted, 18.0), -80.0)
+
+    def _max_volume_callback(self, zone: str, _event: str, parameter: str) -> None:
+        """
+        Handle a volume limit change event.
+
+        The callback is registered under the zone's own event name, so the
+        parameter is whatever followed it and carries no zone of its own.
+
+        Every change to the limit is pushed here, whoever makes it.
+        """
+        value = parameter.strip()
+        if value in ("OFF", ""):
+            volume = None
+        else:
+            # A plain integer on the absolute scale, zero padded on zone 2 and
+            # zone 3 but never a half step, so this is not the MV encoding.
+            volume = -80.0 + float(value)
+
+        # Assigned even when unchanged, so OFF marks a never read limit known.
+        if self._max_volume != volume:
+            _LOGGER.debug("Set max volume: %s", volume)
+        self._max_volume = volume
 
     def _mute_callback(self, zone: str, event: str, parameter: str) -> None:
         """Handle a muting change event."""
@@ -196,6 +322,9 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self.async_update_attrs_appcommand(
                 self.appcommand_attrs, global_update=global_update, cache_id=cache_id
             )
+            await self.async_update_channel_levels(
+                global_update=global_update, cache_id=cache_id
+            )
         else:
             urls = [self._device.urls.status]
             if self._device.zone == MAIN_ZONE:
@@ -203,6 +332,62 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self.async_update_attrs_status_xml(
                 self.status_xml_attrs, urls, cache_id=cache_id
             )
+
+    async def async_update_channel_levels(
+        self, global_update: bool = False, cache_id: Optional[Hashable] = None
+    ) -> None:
+        """
+        Update the channel levels of the device from AppCommand.xml.
+
+        GetChLevel is parsed here rather than through a response pattern
+        because it answers with a repeated <ch> list, which a pattern cannot
+        express. The tag rides the global update, so this costs no request of
+        its own on the path that calls it.
+        """
+        try:
+            if global_update:
+                xml = await self._device.api.async_get_global_appcommand(
+                    cache_id=cache_id
+                )
+            else:
+                xml = await self._device.api.async_post_appcommand(
+                    self._device.urls.appcommand,
+                    (AppCommands.GetChLevel,),
+                    cache_id=cache_id,
+                )
+        except AvrRequestError as err:
+            _LOGGER.debug("Error when getting channel levels: %s", err)
+            raise
+
+        self._channel_volumes_appcommand = self._parse_channel_levels(xml)
+
+    @staticmethod
+    def _parse_channel_levels(xml: ET.Element) -> Optional[Dict[Channels, float]]:
+        """Return the channel levels of a GetChLevel response, if readable."""
+        search_string = (
+            f"./cmd[@{APPCOMMAND_CMD_TEXT}='{AppCommands.GetChLevel.cmd_text}']"
+        )
+        cmd = xml.find(search_string)
+        if cmd is None:
+            # Receivers which do not know the command answer <error>2</error>
+            return None
+
+        # Only the top level status is a reliable gate: a receiver in standby
+        # answers 0 there while still reporting status 1 and a value per
+        # channel. Which channels are readable follows the input source and
+        # what is playing, so the set is replaced rather than merged.
+        if (cmd.findtext("status") or "").strip() != "1":
+            return None
+
+        channel_volumes = {}
+        for child in cmd.findall("./chlists/ch"):
+            name = (child.findtext("name") or "").strip()
+            value = (child.findtext("value") or "").strip()
+            if not value or name not in CHANNEL_MAP:
+                continue
+            channel_volumes[CHANNEL_MAP[name]] = convert_appcommand_level(value)
+
+        return channel_volumes or None
 
     ##############
     # Properties #
@@ -227,13 +412,37 @@ class DenonAVRVolume(DenonAVRFoundation):
         return self._volume
 
     @property
+    def max_volume(self) -> float:
+        """
+        Return maximum allowed volume of Denon AVR as float.
+
+        Volume is sent in a format like -50.0.
+        """
+        return self._max_volume if self._max_volume is not None else 18.0
+
+    @property
+    def max_volume_known(self) -> bool:
+        """
+        Return whether the receiver has reported its volume limit.
+
+        Until it has, max_volume reads as if no limit were set.
+        """
+        return self._max_volume_known
+
+    @property
     def channel_volumes(self) -> Optional[Dict[Channels, float]]:
         """
         Return the channel levels of the device in dB.
 
-        Only available if using Telnet.
+        A level pushed over telnet wins over the one read from AppCommand.xml,
+        which is only readable while audio is playing.
         """
-        return self._channel_volumes
+        if self._channel_volumes_appcommand is None:
+            return self._channel_volumes
+        if self._channel_volumes is None:
+            return self._channel_volumes_appcommand
+
+        return {**self._channel_volumes_appcommand, **self._channel_volumes}
 
     @property
     def subwoofer(self) -> Optional[bool]:
@@ -244,17 +453,61 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         return self._subwoofer
 
+    def _merged_subwoofer_levels(self) -> Optional[Dict[Subwoofers, float]]:
+        """
+        Return the subwoofer levels known from either interface.
+
+        A level pushed over telnet wins over the one read from AppCommand.xml:
+        both are the same setting on the same scale, but the telnet value
+        arrives when it changes while the AppCommand one is only readable
+        while audio is playing.
+        """
+        levels: Dict[Subwoofers, float] = {}
+        if self._subwoofer_level_status:
+            for subwoofer, value in (
+                ("Subwoofer", self._subwoofer1_value),
+                ("Subwoofer 2", self._subwoofer2_value),
+                ("Subwoofer 3", self._subwoofer3_value),
+                ("Subwoofer 4", self._subwoofer4_value),
+            ):
+                if value is not None:
+                    levels[subwoofer] = value
+
+        if not levels:
+            return self._subwoofer_levels
+
+        if self._subwoofer_levels is not None:
+            levels.update(self._subwoofer_levels)
+
+        return levels
+
     @property
     def subwoofer_levels(self) -> Optional[Dict[Subwoofers, Union[bool, float]]]:
         """
         Return the subwoofer levels of the device in dB when enabled.
 
-        Only available if using Telnet.
+        The Subwoofer Level Adjust menu setting, pushed over telnet and
+        assumed on until a push says otherwise, gates every level;
+        subwoofer_level_status gates only the HTTP ones, since a PSSWL value
+        is the stored setting and stays valid while HTTP reports none.
+        subwoofer_level() reads through here so the two cannot disagree.
         """
         if self._subwoofer_levels_adjustment:
-            return self._subwoofer_levels
+            return self._merged_subwoofer_levels()
 
         return None
+
+    @property
+    def subwoofer_level_status(self) -> Optional[bool]:
+        """
+        Return whether the subwoofer level is adjustable right now.
+
+        This is the top level status of GetSubwooferLevel, True only while a
+        signal is present and subwoofer output is on. It gates the HTTP read
+        and the write alike. None means the receiver has not reported it,
+        which is the answer for a model that does not know the command.
+        """
+        return self._subwoofer_level_status
 
     @property
     def lfe(self) -> Optional[int]:
@@ -281,23 +534,29 @@ class DenonAVRVolume(DenonAVRFoundation):
         """
         Return the volume of a channel in dB.
 
-        Only available if using Telnet.
+        A channel with no known level reads as None. Only an HTTP value drops
+        out when the channel stops being readable; a CV push is the stored
+        setting and is kept.
         """
         self._is_valid_channel(channel)
-        if self._channel_volumes is None:
+        channel_volumes = self.channel_volumes
+        if channel_volumes is None:
             return None
-        return self._channel_volumes[channel]
+        return channel_volumes.get(channel)
 
     def subwoofer_level(self, subwoofer: Subwoofers) -> Optional[float]:
         """
         Return the volume of a subwoofer in dB.
 
-        Only available if using Telnet.
+        A subwoofer with no known level reads as None. Only an HTTP value
+        drops out when the level stops being readable; a PSSWL push is the
+        stored setting and is kept.
         """
         self._is_valid_subwoofer(subwoofer)
-        if self._subwoofer_levels is None:
+        subwoofer_levels = self.subwoofer_levels
+        if subwoofer_levels is None:
             return None
-        return self._subwoofer_levels[subwoofer]
+        return subwoofer_levels.get(subwoofer)
 
     ##########
     # Setter #
@@ -305,6 +564,9 @@ class DenonAVRVolume(DenonAVRFoundation):
     async def async_volume_up(self) -> None:
         """Volume up receiver."""
         if self._device.telnet_available:
+            if self._volume is not None and self._volume >= self.max_volume:
+                _LOGGER.debug("Volume already at max value, skipping.")
+                return
             await self._device.telnet_api.async_send_commands(
                 self._device.telnet_commands.command_volume_up, skip_confirmation=True
             )
@@ -316,6 +578,9 @@ class DenonAVRVolume(DenonAVRFoundation):
     async def async_volume_down(self) -> None:
         """Volume down receiver."""
         if self._device.telnet_available:
+            if self._volume is not None and self._volume == -80.0:
+                _LOGGER.debug("Volume already at min value, skipping.")
+                return
             await self._device.telnet_api.async_send_commands(
                 self._device.telnet_commands.command_volume_down, skip_confirmation=True
             )
@@ -337,6 +602,19 @@ class DenonAVRVolume(DenonAVRFoundation):
         # Round volume because only values which are a multi of 0.5 are working
         volume = round(volume * 2) / 2.0
         if self._device.telnet_available:
+            if volume > self.max_volume:
+                _LOGGER.debug(
+                    "Volume %s exceeds custom max volume %s."
+                    " Setting volume to max allowed",
+                    volume,
+                    self.max_volume,
+                )
+                volume = self.max_volume
+
+            if volume == self._volume:
+                _LOGGER.debug("Volume already set for receiver, skipping.")
+                return
+
             await self._device.telnet_api.async_send_commands(
                 self._device.telnet_commands.command_set_volume.format(
                     volume=int(volume + 80)
@@ -346,6 +624,40 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self._device.api.async_get_command(
                 self._device.urls.command_set_volume.format(volume=volume)
             )
+
+    async def async_set_max_volume(self, max_volume: Optional[float]) -> None:
+        """
+        Set the receiver volume limit.
+
+        The limit is given in the same scale as the volume, from -20.0 to 0.0,
+        and None turns it off. The main zone takes every whole step; zone 2 and
+        zone 3 only take multiples of 10.0.
+        """
+        if max_volume is None:
+            telnet_command = self._device.telnet_commands.command_max_volume_off
+            url = self._device.urls.command_max_volume_off
+        else:
+            step = MAX_VOLUME_STEP[self._device.zone]
+            if (
+                max_volume < MAX_VOLUME_MIN
+                or max_volume > MAX_VOLUME_MAX
+                or max_volume % step != 0
+            ):
+                raise AvrCommandError(f"Invalid max volume: {max_volume}")
+
+            # The receiver ignores a value it does not accept, answering the
+            # same 200 with an empty body either way, so the domain is checked
+            # here rather than read back.
+            value = int(max_volume + 80)
+            telnet_command = self._device.telnet_commands.command_set_max_volume.format(
+                value=value
+            )
+            url = self._device.urls.command_set_max_volume.format(value=value)
+
+        if self._device.telnet_available:
+            await self._device.telnet_api.async_send_commands(telnet_command)
+        else:
+            await self._device.api.async_get_command(url)
 
     async def async_mute(self, mute: bool) -> None:
         """Mute receiver."""
@@ -530,6 +842,47 @@ class DenonAVRVolume(DenonAVRFoundation):
             await self._device.api.async_get_command(
                 self._device.urls.command_subwoofer_level.format(
                     number=mapped_subwoofer, mode="DOWN"
+                )
+            )
+
+    async def async_set_subwoofer_level(
+        self, subwoofer: Subwoofers, level: float
+    ) -> None:
+        """
+        Set the level of a subwoofer on the receiver.
+
+        :param subwoofer: Subwoofer to set.
+        :param level: Level to set. Valid values are -12 to 12 with 0.5 steps.
+
+        The receiver drops this command unless it reports the level as
+        adjustable, and does so misleadingly: it acknowledges the request and
+        echoes the unchanged level back on telnet, which reads as a
+        confirmation. Refused here rather than reported as a success that did
+        not happen. A receiver that has not reported the status at all is left
+        alone, since that is what a model without the command looks like.
+        """
+        self._is_valid_subwoofer(subwoofer)
+        if level not in CHANNEL_VOLUME_MAP_REVERSE:
+            raise AvrCommandError(f"Invalid subwoofer level: {level}")
+        if self._subwoofer_level_status is False:
+            raise AvrCommandError(
+                "Cannot set the subwoofer level, the receiver reports it as "
+                "not adjustable: a signal must be present and subwoofer "
+                "output must be on"
+            )
+
+        mapped_subwoofer = SUBWOOFERS_MAP_REVERSE[subwoofer]
+        mapped_level = CHANNEL_VOLUME_MAP_REVERSE[level]
+        if self._device.telnet_available:
+            await self._device.telnet_api.async_send_commands(
+                self._device.telnet_commands.command_subwoofer_level.format(
+                    number=mapped_subwoofer, mode=mapped_level
+                )
+            )
+        else:
+            await self._device.api.async_get_command(
+                self._device.urls.command_subwoofer_level.format(
+                    number=mapped_subwoofer, mode=mapped_level
                 )
             )
 

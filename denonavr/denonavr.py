@@ -24,6 +24,7 @@ from .const import (
     AudioRestorers,
     AutoStandbys,
     BluetoothOutputModes,
+    Channels,
     DimmerModes,
     DynamicVolumeSettings,
     EcoModes,
@@ -35,6 +36,7 @@ from .const import (
     PanelLocks,
     ReferenceLevelOffsets,
     RoomSizes,
+    Subwoofers,
     TransducerLPFs,
     VideoProcessingModes,
 )
@@ -386,6 +388,79 @@ class DenonAVR(DenonAVRFoundation):
         Minimum is -80.0, maximum at 18.0
         """
         return self.vol.volume
+
+    @property
+    def max_volume(self) -> float:
+        """
+        Return the highest volume the receiver will take, as float.
+
+        This is the configured volume limit, reported in the same scale as
+        volume, or the hardware maximum of 18.0 when no limit is set.
+        """
+        return self.vol.max_volume
+
+    @property
+    def max_volume_known(self) -> bool:
+        """
+        Return whether the receiver has reported its volume limit.
+
+        Until it has, max_volume reads as if no limit were set.
+        """
+        return self.vol.max_volume_known
+
+    @property
+    def channel_volumes(self) -> Optional[Dict[Channels, float]]:
+        """
+        Return the channel levels of the device in dB.
+
+        A level pushed over telnet wins over the one read from AppCommand.xml,
+        which is only readable while audio is playing.
+        """
+        return self.vol.channel_volumes
+
+    @property
+    def subwoofer_levels(self) -> Optional[Dict[Subwoofers, Union[bool, float]]]:
+        """
+        Return the level of each subwoofer the receiver reports, in dB.
+
+        Read over HTTP while the level is adjustable, and over telnet whenever
+        a PSSWL event arrives, which wins where both are known. A PSSWL value
+        is the stored setting and is kept while HTTP reports none; whether the
+        level can be read or set right now is subwoofer_level_status.
+        """
+        return self.vol.subwoofer_levels
+
+    @property
+    def subwoofer_level_status(self) -> Optional[bool]:
+        """
+        Return whether the subwoofer level can be read and set right now.
+
+        True only while a signal is present and subwoofer output is on --
+        either one off closes it, and the receiver then neither reports a
+        level nor accepts one. None means the receiver has not reported it,
+        which is the answer for a model that does not know the command.
+        """
+        return self.vol.subwoofer_level_status
+
+    def channel_volume(self, channel: Channels) -> Optional[float]:
+        """
+        Return the volume of a channel in dB.
+
+        A channel with no known level reads as None. Only an HTTP value drops
+        out when the channel stops being readable; a CV push is the stored
+        setting and is kept.
+        """
+        return self.vol.channel_volume(channel)
+
+    def subwoofer_level(self, subwoofer: Subwoofers) -> Optional[float]:
+        """
+        Return the level of one subwoofer in dB.
+
+        A subwoofer with no known level reads as None. Only an HTTP value
+        drops out when the level stops being readable; a PSSWL push is the
+        stored setting and is kept.
+        """
+        return self.vol.subwoofer_level(subwoofer)
 
     @property
     def input_func(self) -> Optional[str]:
@@ -917,9 +992,62 @@ class DenonAVR(DenonAVRFoundation):
         Set receiver volume.
 
         Volume is send in a format like -50.0.
-        Minimum is -80.0, maximum at 18.0
+        Minimum is -80.0, maximum at 18.0, or max_volume when a volume limit is
+        configured on the receiver.
         """
         await self.vol.async_set_volume(volume)
+
+    async def async_set_max_volume(self, max_volume: Optional[float]) -> None:
+        """
+        Set the receiver volume limit.
+
+        The limit is given in the same scale as the volume, from -20.0 to 0.0,
+        and None turns it off. The main zone takes every whole step; zone 2 and
+        zone 3 only take multiples of 10.0.
+        """
+        await self.vol.async_set_max_volume(max_volume)
+
+    async def async_channel_volume_up(self, channel: Channels) -> None:
+        """Increase Channel volume on receiver."""
+        await self.vol.async_channel_volume_up(channel)
+
+    async def async_channel_volume_down(self, channel: Channels) -> None:
+        """Decrease Channel volume on receiver."""
+        await self.vol.async_channel_volume_down(channel)
+
+    async def async_channel_volume(self, channel: Channels, volume: float) -> None:
+        """
+        Set Channel volume on receiver.
+
+        :param channel: Channel to set.
+        :param volume: Volume to set. Valid values are -12 to 12 with 0.5 steps.
+        """
+        await self.vol.async_channel_volume(channel, volume)
+
+    async def async_channel_volumes_reset(self) -> None:
+        """Reset all channel volumes on receiver."""
+        await self.vol.async_channel_volumes_reset()
+
+    async def async_subwoofer_level_up(self, subwoofer: Subwoofers) -> None:
+        """Increase the level of a subwoofer by one step."""
+        await self.vol.async_subwoofer_level_up(subwoofer)
+
+    async def async_subwoofer_level_down(self, subwoofer: Subwoofers) -> None:
+        """Decrease the level of a subwoofer by one step."""
+        await self.vol.async_subwoofer_level_down(subwoofer)
+
+    async def async_set_subwoofer_level(
+        self, subwoofer: Subwoofers, level: float
+    ) -> None:
+        """
+        Set the level of a subwoofer in dB.
+
+        Valid levels are -12.0 to 12.0 in steps of 0.5. The receiver drops the
+        command while subwoofer_level_status is False and says nothing about
+        having done so, so this raises AvrCommandError rather than reporting a
+        success that did not happen.
+        """
+        await self.vol.async_set_subwoofer_level(subwoofer, level)
 
     async def async_mute(self, mute: bool) -> None:
         """Mute receiver."""

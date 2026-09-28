@@ -19,8 +19,30 @@ from denonavr.api import DenonAVRTelnetApi, DenonAVRTelnetProtocol
 from denonavr.const import SOUND_MODE_MAPPING, STATE_OFF, STATE_ON
 from denonavr.decorators import async_handle_receiver_exceptions
 from denonavr.exceptions import AvrNetworkError, AvrTimoutError
+from denonavr.volume import DenonAVRVolume
 
 FAKE_IP = "10.0.0.0"
+
+# Every entry needs a reason. A family is delegated once its read lands, never
+# before: a setter whose getter stays None sends the same value every time.
+VOLUME_MEMBERS_OFF_THE_FACADE = {
+    "setup": "lifecycle, called by DenonAVR.async_setup",
+    "async_update_volume": "internal, driven by DenonAVR.async_update",
+    "async_update_channel_levels": "internal, driven by DenonAVR.async_update",
+    "lfe": "read not implemented; GetSurroundParameter param lfe",
+    "async_lfe": "paired with lfe",
+    "async_lfe_up": "paired with lfe",
+    "async_lfe_down": "paired with lfe",
+    "subwoofer": "read not implemented; GetSurroundParameter param sw",
+    "async_subwoofer_on": "paired with subwoofer",
+    "async_subwoofer_off": "paired with subwoofer",
+    "async_subwoofer_toggle": "paired with subwoofer",
+    "bass_sync": "no read found, and none testable without the hardware",
+    "async_bass_sync": "paired with bass_sync",
+    "async_bass_sync_up": "paired with bass_sync",
+    "async_bass_sync_down": "paired with bass_sync",
+}
+
 
 NO_ZONES = None
 ZONE2 = {"Zone2": None}
@@ -58,6 +80,100 @@ TESTING_RECEIVERS = {
     "AVR-3313": (ZONE2_ZONE3, denonavr.const.AVR_X),
 }
 
+# Volume limits in the AppCommand samples, as <limit> reports them. A receiver
+# with no limit configured sends the literal string OFF, and max_volume reports
+# that as the hardware ceiling rather than as a limit.
+NO_LIMIT = 18.0
+MAX_VOLUMES = {
+    "NR1609": {"Main": NO_LIMIT, "Zone2": -20.0},
+    "AVC-8500H": {"Main": NO_LIMIT, "Zone2": -10.0, "Zone3": -10.0},
+    "AVC-A10H": {"Main": -20.0, "Zone2": -10.0, "Zone3": -10.0},
+    "AVR-X4300H": {"Main": NO_LIMIT, "Zone2": -10.0, "Zone3": -10.0},
+    # SR6012 reports the main zone limit as "  0.0", padded with whitespace
+    "SR6012": {"Main": 0.0, "Zone2": -10.0},
+    "AVC-X3700H": {"Main": NO_LIMIT, "Zone2": -10.0},
+    "AV7703": {"Main": -10.0, "Zone2": 0.0, "Zone3": -10.0},
+}
+
+# The subwoofer level is only readable while audio is playing, so a sample
+# taken off or idle reports it unknown -- AVC-X3700H even while the channel
+# level block of the same response carries values. A model declaring more
+# than one subwoofer reports one value each.
+SUBWOOFER_LEVELS = {
+    "AV7703": {"Subwoofer": -2.0, "Subwoofer 2": -1.0},
+    "AVC-8500H": {"Subwoofer": 0.0, "Subwoofer 2": 0.0},
+    "AVR-X4300H": {"Subwoofer": -10.0, "Subwoofer 2": -8.0},
+    "NR1609": {"Subwoofer": -5.0},
+    "AVR-X4100W": {"Subwoofer": 3.0, "Subwoofer 2": 3.0},
+    "AVC-X3700H": None,
+    "AVC-A10H": None,
+    "SR6012": None,
+    "SR6011": None,
+    # These receivers do not know the command and answer <error>2</error>
+    "AVR-1713": None,
+    "AVR-3313": None,
+    "AVR-X1100W": None,
+    "AVR-X4000": None,
+    "DRA-N4": None,
+    "M-CR510-2": None,
+}
+
+# The channel levels are readable under the same condition, and the samples
+# that report them unknown are the interesting ones: their channel blocks carry
+# a status of 1 and a populated value while the top level status is 0.
+CHANNEL_VOLUMES = {
+    "AV7703": {
+        "Center": 1.0,
+        "Subwoofer": 0.0,
+        "Front Left": -3.0,
+        "Front Right": -3.0,
+        "Surround Left": 0.0,
+        "Surround Right": 0.0,
+    },
+    "AVC-8500H": {
+        "Center": 0.0,
+        "Subwoofer": 2.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": -1.0,
+        "Surround Right": -1.0,
+    },
+    "AVR-X4300H": {
+        "Center": 3.0,
+        "Subwoofer": 0.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": 0.0,
+        "Surround Right": 0.0,
+    },
+    "NR1609": {
+        "Center": 0.0,
+        "Subwoofer": 0.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": -2.0,
+        "Surround Right": -2.0,
+    },
+    "AVR-X4100W": {
+        "Center": -1.0,
+        "Subwoofer": 0.0,
+        "Front Left": 0.0,
+        "Front Right": 0.0,
+        "Surround Left": 1.0,
+        "Surround Right": 1.0,
+    },
+    "AVC-X3700H": None,
+    "AVC-A10H": None,
+    "SR6012": None,
+    "SR6011": None,
+    "AVR-1713": None,
+    "AVR-3313": None,
+    "AVR-X1100W": None,
+    "AVR-X4000": None,
+    "DRA-N4": None,
+    "M-CR510-2": None,
+}
+
 APPCOMMAND_URL = "/goform/AppCommand.xml"
 STATUS_URL = "/goform/formMainZone_MainZoneXmlStatus.xml"
 STATUS_Z2_URL = "/goform/formZone2_Zone2XmlStatus.xml"
@@ -69,6 +185,16 @@ TUNERSTATUS_URL = "/goform/formTuner_TunerXml.xml"
 HDTUNERSTATUS_URL = "/goform/formTuner_HdXml.xml"
 DESCRIPTION_URL1 = "/description.xml"
 DESCRIPTION_URL2 = "/upnp/desc/aios_device/aios_device.xml"
+
+
+def _public_surface(cls: type) -> set:
+    """Return the public properties and methods a class declares itself."""
+    return {
+        name
+        for name, member in vars(cls).items()
+        if not name.startswith("_")
+        and (isinstance(member, property) or callable(member))
+    }
 
 
 def get_sample_content(filename):
@@ -234,6 +360,161 @@ class TestMainFunctions:
             assert (
                 self.denon.state is not None
             ), f"State is None for receiver {receiver}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_max_volume(self, httpx_mock: HTTPXMock):
+        """Check that the volume limit is read from every AppCommand sample."""
+        httpx_mock.add_callback(self.custom_matcher)
+        for receiver, expected in MAX_VOLUMES.items():
+            # Switch receiver and update to load new sample files
+            self.testing_receiver = receiver
+            spec = TESTING_RECEIVERS[receiver]
+            self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+            await self.denon.async_setup()
+            for name, zone in self.denon.zones.items():
+                await zone.async_update()
+                assert zone.max_volume == expected[name], (
+                    f"Max volume is {zone.max_volume} not {expected[name]} for"
+                    f" receiver {receiver}, zone {name}"
+                )
+                assert (
+                    zone.max_volume_known
+                ), f"Max volume unknown for receiver {receiver}, zone {name}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_max_volume_unknown_without_appcommand(self, httpx_mock: HTTPXMock):
+        """Check that a receiver polled over status XML never reports a limit."""
+        httpx_mock.add_callback(self.custom_matcher)
+        self.testing_receiver = "AVR-3313"
+        spec = TESTING_RECEIVERS["AVR-3313"]
+        self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+        await self.denon.async_setup()
+        for name, zone in self.denon.zones.items():
+            await zone.async_update()
+            assert (
+                not zone.max_volume_known
+            ), f"Max volume known for AVR-3313, zone {name}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_subwoofer_level(self, httpx_mock: HTTPXMock):
+        """Check that the subwoofer level is read from every AppCommand sample."""
+        httpx_mock.add_callback(self.custom_matcher)
+        for receiver, expected in SUBWOOFER_LEVELS.items():
+            print(f"Receiver: {receiver}")
+            # Switch receiver and update to load new sample files
+            self.testing_receiver = receiver
+            spec = TESTING_RECEIVERS[receiver]
+            self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+            await self.denon.async_setup()
+            await self.denon.async_update()
+            levels = self.denon.subwoofer_levels
+            assert (
+                levels == expected
+            ), f"Subwoofer levels are {levels} not {expected} for receiver {receiver}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_channel_volumes(self, httpx_mock: HTTPXMock):
+        """Check that the channel levels are read from every AppCommand sample."""
+        httpx_mock.add_callback(self.custom_matcher)
+        for receiver, expected in CHANNEL_VOLUMES.items():
+            print(f"Receiver: {receiver}")
+            # Switch receiver and update to load new sample files
+            self.testing_receiver = receiver
+            spec = TESTING_RECEIVERS[receiver]
+            self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+            await self.denon.async_setup()
+            await self.denon.async_update()
+            levels = self.denon.vol.channel_volumes
+            assert (
+                levels == expected
+            ), f"Channel levels are {levels} not {expected} for receiver {receiver}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_the_two_subwoofer_settings_are_separate(self, httpx_mock: HTTPXMock):
+        """Check that the subwoofer channel level is not the subwoofer level."""
+        httpx_mock.add_callback(self.custom_matcher)
+        # Options > Channel Level and Audio > Subwoofer Level Adjust are
+        # different settings, and the receiver reports a value in each
+        self.testing_receiver = "AV7703"
+        spec = TESTING_RECEIVERS["AV7703"]
+        self.denon = denonavr.DenonAVR(FAKE_IP, add_zones=spec[0])
+        await self.denon.async_setup()
+        await self.denon.async_update()
+
+        assert self.denon.vol.channel_volumes["Subwoofer"] == 0.0
+        assert self.denon.subwoofer_levels["Subwoofer"] == -2.0
+
+    @pytest.mark.asyncio
+    async def test_the_subwoofer_level_setter_is_forwarded(self):
+        """Check that the facade forwards rather than reimplementing."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        denon.vol.async_set_subwoofer_level = mock.AsyncMock()
+        await denon.async_set_subwoofer_level("Subwoofer 2", -2.0)
+        denon.vol.async_set_subwoofer_level.assert_awaited_once_with(
+            "Subwoofer 2", -2.0
+        )
+
+    def test_the_subwoofer_level_gate_is_forwarded(self):
+        """Check that a consumer reads the gate the setter itself obeys."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        assert denon.subwoofer_level_status is None
+        denon.vol._subwoofer_level_status = "1"
+        assert denon.subwoofer_level_status is True
+        denon.vol._subwoofer_level_status = "0"
+        assert denon.subwoofer_level_status is False
+
+    def test_one_subwoofer_level_is_forwarded(self):
+        """Check that the per subwoofer getter reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon.vol._subwoofer_level_status = "1"
+        denon.vol._subwoofer1_value = "20"
+        assert denon.subwoofer_level("Subwoofer") == -2.0
+
+    def test_the_channel_levels_are_forwarded(self):
+        """Check that the channel level dict reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        assert denon.channel_volumes is None
+        denon.vol._channel_volumes = {"Front Left": 1.5}
+        assert denon.channel_volumes == {"Front Left": 1.5}
+
+    def test_one_channel_level_is_forwarded(self):
+        """Check that the per channel getter reaches the volume module."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon.vol._channel_volumes = {"Front Left": 1.5}
+        assert denon.channel_volume("Front Left") == 1.5
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "args"),
+        [
+            pytest.param("async_channel_volume_up", ("Front Left",), id="up"),
+            pytest.param("async_channel_volume_down", ("Front Left",), id="down"),
+            pytest.param("async_channel_volume", ("Front Left", 1.5), id="set"),
+            pytest.param("async_channel_volumes_reset", (), id="reset"),
+        ],
+    )
+    async def test_the_channel_level_setters_are_forwarded(
+        self, method: str, args: tuple
+    ):
+        """Check that the facade forwards rather than reimplementing."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        setattr(denon.vol, method, mock.AsyncMock())
+        await getattr(denon, method)(*args)
+        getattr(denon.vol, method).assert_awaited_once_with(*args)
+
+    def test_every_volume_member_is_on_the_facade(self):
+        """Check that no volume member can only be reached through .vol."""
+        missing = _public_surface(DenonAVRVolume) - _public_surface(denonavr.DenonAVR)
+        assert missing == set(VOLUME_MEMBERS_OFF_THE_FACADE)
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
