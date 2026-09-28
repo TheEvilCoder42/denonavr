@@ -423,6 +423,10 @@ class DenonAVRInput(DenonAVRFoundation):
         self, zone: str, event: str, parameter: str
     ) -> None:
         """Handle input func update events."""
+        # Only renames (FUN) and hides (SOD) change the list; the receiver
+        # pushes other SS status events many times a minute.
+        if parameter[0:3] not in ("FUN", "SOD"):
+            return
         if self._input_func_update_lock.locked():
             return
         task = asyncio.create_task(self.async_update_inputfuncs())
