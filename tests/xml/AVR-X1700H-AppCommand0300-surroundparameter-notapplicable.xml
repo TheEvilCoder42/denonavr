@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<name>GetSurroundParameter</name>
+<list>
+<param name="lfe" control="0"></param>
+<param name="sw" control="0"></param>
+</list>
+</cmd>
+</rx>

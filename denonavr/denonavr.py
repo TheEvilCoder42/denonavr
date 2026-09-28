@@ -311,20 +311,39 @@ class DenonAVR(DenonAVRFoundation):
         """
         Get the settings that are served by AppCommand0300.xml.
 
-        Audyssey and the audio delay share one request, under the same cache
-        id. The body carries no zone either, so a caller refreshing several
-        zones can pass one cache id to all of them and have the first zone's
-        request answer the rest. Pass a value that is new for each refresh,
-        or the answer is the settings as they were then.
+        Audyssey, the audio delay and the surround parameters (the LFE level
+        and the subwoofer output) share one request, under the same cache id.
+        The body carries no zone either, so a caller refreshing several zones
+        can pass one cache id to all of them and have the first zone's request
+        answer the rest. Pass a value that is new for each refresh, or the
+        answer is the settings as they were then.
         """
         if cache_id is None:
             cache_id = time.time()
         await self.audyssey.async_update(global_update=True, cache_id=cache_id)
         await self.audiodelay.async_update(global_update=True, cache_id=cache_id)
+        await self.vol.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
 
     async def async_update_audyssey(self, cache_id: Optional[Hashable] = None) -> None:
         """Get Audyssey settings. Alias of async_update_settings()."""
         await self.async_update_settings(cache_id=cache_id)
+
+    async def async_update_surround_parameters(
+        self, global_update: bool = False, cache_id: Optional[Hashable] = None
+    ) -> None:
+        """
+        Get the LFE level and the subwoofer output state.
+
+        Both are served by AppCommand0300.xml, which answers every registered
+        tag at once. Passing global_update with the cache id of another
+        AppCommand0300 update in the same refresh reads them out of that
+        request instead of making a second one.
+        """
+        await self.vol.async_update_surround_parameters(
+            global_update=global_update, cache_id=cache_id
+        )
 
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
@@ -515,6 +534,46 @@ class DenonAVR(DenonAVRFoundation):
         stored setting and is kept.
         """
         return self.vol.subwoofer_level(subwoofer)
+
+    @property
+    def lfe(self) -> Optional[int]:
+        """
+        Return LFE level in dB.
+
+        While the setting cannot be changed, this is the stored value telnet
+        reported or None after an HTTP read, whichever came last; lfe_adjustable
+        says whether it can.
+        """
+        return self.vol.lfe
+
+    @property
+    def lfe_adjustable(self) -> Optional[bool]:
+        """
+        Return whether the receiver lets the LFE level change.
+
+        None until GetSurroundParameter has answered. Telnet does not report it.
+        """
+        return self.vol.lfe_adjustable
+
+    @property
+    def subwoofer(self) -> Optional[bool]:
+        """
+        Return the state of the subwoofer.
+
+        While the setting cannot be changed, this is the stored value telnet
+        reported or None after an HTTP read, whichever came last; subwoofer_adjustable
+        says whether it can.
+        """
+        return self.vol.subwoofer
+
+    @property
+    def subwoofer_adjustable(self) -> Optional[bool]:
+        """
+        Return whether the receiver lets the subwoofer output change.
+
+        None until GetSurroundParameter has answered. Telnet does not report it.
+        """
+        return self.vol.subwoofer_adjustable
 
     @property
     def input_func(self) -> Optional[str]:
@@ -1125,6 +1184,34 @@ class DenonAVR(DenonAVRFoundation):
     async def async_mute_toggle(self) -> None:
         """Mute toggle receiver via HTTP get command."""
         await self.vol.async_mute_toggle()
+
+    async def async_lfe(self, lfe: int) -> None:
+        """
+        Set LFE level on receiver.
+
+        :param lfe: LFE level to set. Valid values are -10 to 0.
+        """
+        await self.vol.async_lfe(lfe)
+
+    async def async_lfe_up(self) -> None:
+        """Increase LFE on receiver."""
+        await self.vol.async_lfe_up()
+
+    async def async_lfe_down(self) -> None:
+        """Decrease LFE on receiver."""
+        await self.vol.async_lfe_down()
+
+    async def async_subwoofer_on(self) -> None:
+        """Turn on Subwoofer on receiver."""
+        await self.vol.async_subwoofer_on()
+
+    async def async_subwoofer_off(self) -> None:
+        """Turn off Subwoofer on receiver."""
+        await self.vol.async_subwoofer_off()
+
+    async def async_subwoofer_toggle(self) -> None:
+        """Toggle Subwoofer on receiver."""
+        await self.vol.async_subwoofer_toggle()
 
     async def async_enable_tone_control(self) -> None:
         """Enable tone control to change settings like bass or treble."""
