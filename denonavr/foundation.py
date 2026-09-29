@@ -15,6 +15,7 @@ from copy import deepcopy
 from typing import Dict, List, Literal, Optional, Union, get_args
 
 import attr
+import httpx
 
 from .api import DenonAVRApi, DenonAVRTelnetApi
 from .appcommand import AppCommandCmd, AppCommands
@@ -505,6 +506,8 @@ class DenonAVRDeviceInfo:
         r_types = [AVR_X, AVR_X_2016]
 
         timeout_errors = 0
+        https_redirect: Optional[AvrRequestError] = None
+        other_port_error: Optional[AvrRequestError] = None
         for r_type in r_types:
             self.api.port = r_type.port
             # This XML is needed to get the sources of the receiver
@@ -520,6 +523,8 @@ class DenonAVRDeviceInfo:
                     err,
                 )
 
+                if r_type.port == AVR_X_2016.port:
+                    other_port_error = err
                 # Raise error only when occurred at both types
                 timeout_errors += 1
                 if timeout_errors == len(r_types):
@@ -535,6 +540,10 @@ class DenonAVRDeviceInfo:
                     r_type.type,
                     err,
                 )
+                if r_type.port == AVR.port and self._is_https_redirect(err):
+                    https_redirect = err
+                elif r_type.port == AVR_X_2016.port:
+                    other_port_error = err
             else:
                 device_zones = xml.find("./DeviceZones")
                 if device_zones is not None:
@@ -551,6 +560,17 @@ class DenonAVRDeviceInfo:
                     # Receiver identified, return
                     return
 
+        if https_redirect is not None:
+            # The fallback port only redirects to https, so falling back cannot
+            # work, while a retry can.
+            if isinstance(other_port_error, (AvrTimoutError, AvrNetworkError)):
+                raise other_port_error
+            raise AvrNetworkError(
+                "Port 80 redirects to https and port 8080 did not identify "
+                "the receiver",
+                https_redirect.request,
+            ) from (other_port_error or https_redirect)
+
         # If check of Deviceinfo.xml was not successful, receiver is type AVR
         self.receiver = AVR
         self.api.port = AVR.port
@@ -559,6 +579,17 @@ class DenonAVRDeviceInfo:
             AVR.type,
             AVR.port,
         )
+
+    @staticmethod
+    def _is_https_redirect(err: AvrRequestError) -> bool:
+        """Return True if the error is a redirect to https on the same host."""
+        cause = err.__cause__
+        if not isinstance(cause, httpx.HTTPStatusError):
+            return False
+        if not cause.response.is_redirect:
+            return False
+        location = httpx.URL(cause.response.headers["location"])
+        return location.scheme == "https" and location.host == cause.request.url.host
 
     @staticmethod
     def _is_avr_x(deviceinfo: ET.Element) -> bool:
