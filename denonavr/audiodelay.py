@@ -154,7 +154,8 @@ class DenonAVRAudioDelay(DenonAVRFoundation):
 
         :param delay: Delay time in ms. Valid values are 0-500.
         """
-        if delay < 0 or delay > 500:
+        # A float would pass the range check and fail in the {delay:03d} format
+        if not isinstance(delay, int) or delay < 0 or delay > 500:
             raise AvrCommandError("Invalid delay value")
 
         if self._device.telnet_available:
