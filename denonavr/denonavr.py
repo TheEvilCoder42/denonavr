@@ -16,6 +16,7 @@ from typing import Callable, Dict, List, Literal, Optional, Union
 import attr
 import httpx
 
+from .audiodelay import DenonAVRAudioDelay, audio_delay_factory
 from .audyssey import DenonAVRAudyssey, audyssey_factory
 from .const import (
     AVR_X,
@@ -118,6 +119,11 @@ class DenonAVR(DenonAVRFoundation):
     )
     _setup_lock: asyncio.Lock = attr.ib(default=attr.Factory(asyncio.Lock))
     _allow_recovery: bool = attr.ib(converter=bool, default=True, init=True)
+    audiodelay: DenonAVRAudioDelay = attr.ib(
+        validator=attr.validators.instance_of(DenonAVRAudioDelay),
+        default=attr.Factory(audio_delay_factory, takes_self=True),
+        init=False,
+    )
     audyssey: DenonAVRAudyssey = attr.ib(
         validator=attr.validators.instance_of(DenonAVRAudyssey),
         default=attr.Factory(audyssey_factory, takes_self=True),
@@ -216,6 +222,7 @@ class DenonAVR(DenonAVRFoundation):
 
             self.vol.setup()
             self.audyssey.setup()
+            self.audiodelay.setup()
             self.dirac.setup()
 
             self._is_setup = True
@@ -253,6 +260,10 @@ class DenonAVR(DenonAVRFoundation):
                 self.tonecontrol.async_update(global_update=True, cache_id=cache_id),
                 self.vol.async_update(global_update=True, cache_id=cache_id),
             )
+            # The receiver stores the audio delay per input source, and this
+            # is the only transport that reports a source change without the
+            # AppCommand0300.xml settings update being enabled
+            self.audiodelay.notify_input_func(self.input.input_func)
         except AvrForbiddenError:
             # Recovery in case receiver changes port from 80 to 8080 which
             # might happen at Denon AVR-X 2016 receivers
@@ -296,9 +307,24 @@ class DenonAVR(DenonAVRFoundation):
         """Get Tonecontrol settings."""
         await self.tonecontrol.async_update()
 
-    async def async_update_audyssey(self):
-        """Get Audyssey settings."""
-        await self.audyssey.async_update()
+    async def async_update_settings(self, cache_id: Optional[Hashable] = None) -> None:
+        """
+        Get the settings that are served by AppCommand0300.xml.
+
+        Audyssey and the audio delay share one request, under the same cache
+        id. The body carries no zone either, so a caller refreshing several
+        zones can pass one cache id to all of them and have the first zone's
+        request answer the rest. Pass a value that is new for each refresh,
+        or the answer is the settings as they were then.
+        """
+        if cache_id is None:
+            cache_id = time.time()
+        await self.audyssey.async_update(global_update=True, cache_id=cache_id)
+        await self.audiodelay.async_update(global_update=True, cache_id=cache_id)
+
+    async def async_update_audyssey(self, cache_id: Optional[Hashable] = None) -> None:
+        """Get Audyssey settings. Alias of async_update_settings()."""
+        await self.async_update_settings(cache_id=cache_id)
 
     async def async_get_command(self, request: str) -> str:
         """Send HTTP GET command to Denon AVR receiver asynchronously."""
@@ -717,13 +743,22 @@ class DenonAVR(DenonAVRFoundation):
         return self._device.sleep
 
     @property
+    def audio_delay(self) -> Optional[int]:
+        """
+        Return the audio delay for the device in ms.
+
+        Over HTTP this is only known after async_update_settings().
+        """
+        return self.audiodelay.audio_delay
+
+    @property
     def delay(self) -> Optional[int]:
         """
         Return the audio delay for the device in ms.
 
-        Only available if using Telnet.
+        Deprecated alias of audio_delay.
         """
-        return self._device.delay
+        return self.audiodelay.audio_delay
 
     @property
     def eco_mode(self) -> Optional[str]:
@@ -892,16 +927,22 @@ class DenonAVR(DenonAVRFoundation):
 
         Possible values are: "Auto", "Bright", "Dim", "Dark", "Off"
         """
-        return self.illumination
+        return self._device.illumination
 
     @property
     def auto_lip_sync(self) -> Optional[bool]:
         """
         Return the auto lip sync status for the device.
 
-        Only available on Marantz devices and when using Telnet.
+        A value pushed over Telnet wins while Telnet is connected, as it does
+        for every other setting. Otherwise it is read from GetAudioDelay,
+        which needs async_update_settings().
         """
-        return self.auto_lip_sync
+        if self._device.telnet_available and self._device.auto_lip_sync is not None:
+            return self._device.auto_lip_sync
+        if self.audiodelay.auto_lip_sync is not None:
+            return self.audiodelay.auto_lip_sync
+        return self._device.auto_lip_sync
 
     ##########
     # Getter #
@@ -1213,11 +1254,19 @@ class DenonAVR(DenonAVRFoundation):
 
     async def async_delay_up(self) -> None:
         """Increase delay of the audio."""
-        await self._device.async_delay_up()
+        await self.audiodelay.async_delay_up()
 
     async def async_delay_down(self) -> None:
         """Decrease delay of the audio."""
-        await self._device.async_delay_down()
+        await self.audiodelay.async_delay_down()
+
+    async def async_delay(self, delay: int) -> None:
+        """
+        Set delay on receiver.
+
+        :param delay: Delay time in ms. Valid values are 0-500.
+        """
+        await self.audiodelay.async_delay(delay)
 
     async def async_eco_mode(self, mode: EcoModes) -> None:
         """Set Eco mode."""

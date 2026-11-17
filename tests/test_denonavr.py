@@ -1065,3 +1065,42 @@ class TestMainFunctions:
             protocol.data_received(b"MV565\r")
             await self.future
             assert self.denon.volume == -23.5
+
+
+class TestDeviceProperties:
+    """Test case for DenonAVR properties that delegate to the device."""
+
+    def test_auto_lip_sync_reads_the_device(self):
+        """Check that auto lip sync is read from the device instance."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device._auto_lip_sync = "ON"
+        assert denon.auto_lip_sync is True
+
+    def test_illumination_reads_the_device(self):
+        """Check that illumination is read from the device instance."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon._device._illumination = "DIM"
+        assert denon.illumination == "Dim"
+
+    def test_auto_lip_sync_prefers_a_telnet_push(self):
+        """Check that a pushed value is not shadowed by the polled one."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon.audiodelay._auto_lip_sync = "1"
+        denon._device._auto_lip_sync_callback("Main", "SS", "HOSALS OFF")
+        with mock.patch.object(
+            type(denon._device),
+            "telnet_available",
+            mock.PropertyMock(return_value=True),
+        ):
+            assert denon.auto_lip_sync is False
+
+    def test_auto_lip_sync_uses_the_polled_value_without_telnet(self):
+        """Check that an HTTP only client still reads the setting."""
+        denon = denonavr.DenonAVR(FAKE_IP)
+        # pylint: disable=protected-access
+        denon.audiodelay._auto_lip_sync = "1"
+        denon._device._auto_lip_sync_callback("Main", "SS", "HOSALS OFF")
+        assert denon.auto_lip_sync is True

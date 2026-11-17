@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<name>GetAudioDelay</name>
+<list>
+<param name="audiodelay" control="2">140</param>
+<param name="autolipsync" control="2">1</param>
+<param name="tvdelay" control="0"></param>
+</list>
+</cmd>
+</rx>
