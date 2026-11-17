@@ -10,6 +10,7 @@ Tests for device setting commands of DenonAVRDeviceInfo.
 import pytest
 
 from denonavr.foundation import AvrCommandError
+from denonavr.speakerpreset import DenonAVRSpeakerPreset
 from tests.test_helpers import DeviceTestFixture
 
 # pylint: disable=protected-access
@@ -229,7 +230,7 @@ class TestDenonAVRDeviceInfoSettings:
     async def test_async_speaker_preset_returns_early_when_matches(self):
         """Test that async_speaker_preset returns early when preset matches."""
         fixture = DeviceTestFixture(True)
-        device = fixture.device_info
+        device = DenonAVRSpeakerPreset(device=fixture.device_info)
         device._speaker_preset_callback("Main", "SP", "PR 1")
         await fixture.async_execute(device.async_speaker_preset(1))
         fixture.assert_not_called()
@@ -238,7 +239,7 @@ class TestDenonAVRDeviceInfoSettings:
     async def test_async_speaker_preset_sends_command_when_differs(self):
         """Test that async_speaker_preset sends command if preset differs."""
         fixture = DeviceTestFixture(True)
-        device = fixture.device_info
+        device = DenonAVRSpeakerPreset(device=fixture.device_info)
         device._speaker_preset_callback("Main", "SP", "PR 1")
         await fixture.async_execute(device.async_speaker_preset(2))
         fixture.assert_called_once()
@@ -247,7 +248,7 @@ class TestDenonAVRDeviceInfoSettings:
     async def test_async_speaker_preset_raises_on_invalid(self):
         """Test that async_speaker_preset raises on invalid preset."""
         fixture = DeviceTestFixture(True)
-        device = fixture.device_info
+        device = DenonAVRSpeakerPreset(device=fixture.device_info)
         device._speaker_preset_callback("Main", "SP", "PR 1")
         with pytest.raises(AvrCommandError):
             await device.async_speaker_preset(42)

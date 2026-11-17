@@ -52,6 +52,7 @@ from .foundation import (
 )
 from .input import DenonAVRInput, input_factory
 from .soundmode import DenonAVRSoundMode, sound_mode_factory
+from .speakerpreset import DenonAVRSpeakerPreset, speaker_preset_factory
 from .tonecontrol import DenonAVRToneControl, tone_control_factory
 from .volume import DenonAVRVolume, volume_factory
 
@@ -144,6 +145,11 @@ class DenonAVR(DenonAVRFoundation):
         default=attr.Factory(sound_mode_factory, takes_self=True),
         init=False,
     )
+    speakerpreset: DenonAVRSpeakerPreset = attr.ib(
+        validator=attr.validators.instance_of(DenonAVRSpeakerPreset),
+        default=attr.Factory(speaker_preset_factory, takes_self=True),
+        init=False,
+    )
     tonecontrol: DenonAVRToneControl = attr.ib(
         validator=attr.validators.instance_of(DenonAVRToneControl),
         default=attr.Factory(tone_control_factory, takes_self=True),
@@ -213,6 +219,7 @@ class DenonAVR(DenonAVRFoundation):
             await asyncio.gather(
                 self.soundmode.async_setup(cache_id=cache_id),
                 self.tonecontrol.async_setup(cache_id=cache_id),
+                self.speakerpreset.async_setup(),
             )
             # A zone's identification moves the shared api's port, and the cache
             # only answers finished requests: zones go one at a time, after these
@@ -311,18 +318,22 @@ class DenonAVR(DenonAVRFoundation):
         """
         Get the settings that are served by AppCommand0300.xml.
 
-        Audyssey, the audio delay and the surround parameters (the LFE level
-        and the subwoofer output) share one request, under the same cache id.
-        The body carries no zone either, so a caller refreshing several zones
-        can pass one cache id to all of them and have the first zone's request
-        answer the rest. Pass a value that is new for each refresh, or the
-        answer is the settings as they were then.
+        Audyssey, the audio delay, the surround parameters (the LFE level and
+        the subwoofer output) and the speaker preset share one request, under
+        the same cache id. The body carries no zone either, so a caller
+        refreshing several zones can pass one cache id to all of them and
+        have the first zone's request answer the rest. Pass a value that is
+        new for each refresh, or the answer is the settings as they were then.
         """
         if cache_id is None:
             cache_id = time.time()
         await self.audyssey.async_update(global_update=True, cache_id=cache_id)
         await self.audiodelay.async_update(global_update=True, cache_id=cache_id)
         await self.vol.async_update_surround_parameters(
+            global_update=True, cache_id=cache_id
+        )
+        # Not async_update(), whose setup would fetch Deviceinfo.xml
+        await self.speakerpreset.async_update_speaker_preset(
             global_update=True, cache_id=cache_id
         )
 
@@ -342,6 +353,21 @@ class DenonAVR(DenonAVRFoundation):
         request instead of making a second one.
         """
         await self.vol.async_update_surround_parameters(
+            global_update=global_update, cache_id=cache_id
+        )
+
+    async def async_update_speaker_preset(
+        self, global_update: bool = False, cache_id: Optional[Hashable] = None
+    ) -> None:
+        """
+        Get the speaker preset.
+
+        The setting is served by AppCommand0300.xml, which answers every
+        registered tag at once. Passing global_update with the cache id of
+        another AppCommand0300 update in the same refresh reads the preset out
+        of that request instead of making a second one for it.
+        """
+        await self.speakerpreset.async_update(
             global_update=global_update, cache_id=cache_id
         )
 
@@ -913,11 +939,16 @@ class DenonAVR(DenonAVRFoundation):
         """
         Return the speaker preset for the device.
 
-        Only available if using Telnet.
+        Over HTTP this is only known after async_update_speaker_preset().
 
-        Possible values are: "1", "2"
+        The values this receiver accepts are speaker_preset_list.
         """
-        return self._device.speaker_preset
+        return self.speakerpreset.speaker_preset
+
+    @property
+    def speaker_preset_list(self) -> List[int]:
+        """Return the preset numbers this receiver accepts."""
+        return self.speakerpreset.speaker_preset_list
 
     @property
     def bt_transmitter(self) -> Optional[bool]:
@@ -1391,17 +1422,18 @@ class DenonAVR(DenonAVRFoundation):
         """
         Set speaker preset on receiver.
 
-        Valid preset values are 1-2.
+        Valid preset values are speaker_preset_list.
         """
-        await self._device.async_speaker_preset(preset)
+        await self.speakerpreset.async_speaker_preset(preset)
 
     async def async_speaker_preset_toggle(self) -> None:
         """
         Toggle speaker preset on receiver.
 
-        Only available if using Telnet.
+        The preset switched away from is the one that was last read, so this
+        needs either Telnet or an update of the setting beforehand.
         """
-        await self._device.async_speaker_preset_toggle()
+        await self.speakerpreset.async_speaker_preset_toggle()
 
     async def async_bt_transmitter_on(self) -> None:
         """Turn on Bluetooth transmitter on receiver."""
